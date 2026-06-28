@@ -1,6 +1,3 @@
-// Clickbait scoring: heuristic + Gemini LLM, merged into the ClickbaitInsights
-// block. On any LLM failure it degrades to the heuristic score.
-
 import { z } from "zod";
 import {
   getGeminiModel,
@@ -45,7 +42,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-// Parses the model's JSON reply (tolerates markdown fences) into a 0..1 score.
+/** Parses the model's JSON reply (tolerates markdown fences) into a 0..1 score. */
 function parseScore(raw: string): number {
   const cleaned = raw.replace(/```json|```/g, "").trim();
   const match = cleaned.match(/\{[\s\S]*\}/);
@@ -54,7 +51,6 @@ function parseScore(raw: string): number {
   return Math.max(0, Math.min(1, parsed.data.score));
 }
 
-// Returns a 0..1 clickbait score from Gemini.
 async function geminiClickbaitScore(signals: ClickbaitSignals): Promise<number> {
   const model = getGeminiModel(SYSTEM_PROMPT);
   const userPayload = JSON.stringify({
@@ -74,7 +70,10 @@ async function geminiClickbaitScore(signals: ClickbaitSignals): Promise<number> 
   }
 }
 
-// Full clickbait insights: heuristic + LLM (degrades to heuristic) + labels.
+/**
+ * Full clickbait insights from the same signals fed to both scorers: heuristic +
+ * Gemini LLM (degrades to the heuristic score on any LLM failure) + labels.
+ */
 export async function scoreClickbait(
   signals: ClickbaitSignals,
   logger: Logger

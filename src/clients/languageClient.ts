@@ -1,10 +1,9 @@
-// Azure AI Language (Text Analysis) client singleton.
-
 import { AzureKeyCredential, TextAnalysisClient } from "@azure/ai-language-text";
 import { env } from "../config/env";
 
 let client: TextAnalysisClient | undefined;
 
+/** Azure AI Language (Text Analysis) client singleton. */
 export function getLanguageClient(): TextAnalysisClient {
   if (!client) {
     const e = env();

@@ -1,8 +1,6 @@
-// video-ingestion-hub message. Defined as a Zod schema (a queue trust boundary)
-// with the TS type inferred from it.
-
 import { z } from "zod";
 
+// video-ingestion-hub message — a queue trust boundary, so Zod-validated on read.
 export const videoIngestionMessageSchema = z.object({
   videoId: z.string().min(1),
   channelId: z.string().min(1),

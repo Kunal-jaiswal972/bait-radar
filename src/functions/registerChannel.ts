@@ -1,5 +1,3 @@
-// POST /api/channels — registers a YouTube channel and subscribes to its feed.
-
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { z } from "zod";
 import { registerChannel } from "../services/channelService";
@@ -10,6 +8,7 @@ const bodySchema = z.object({
   channelId: z.string().optional(),
 });
 
+/** POST /api/channels — registers a YouTube channel and subscribes to its feed. */
 export async function registerChannelHandler(
   request: HttpRequest,
   context: InvocationContext

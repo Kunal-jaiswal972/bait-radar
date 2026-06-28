@@ -1,14 +1,7 @@
-// EventHubTrigger on video-ingestion-hub. Extracts metadata, comments, and the
-// transcript, runs AI enrichment, and upserts the VideoInsights document.
-//
-// Resilience rule: never discard successfully fetched data on partial failure.
-// Each source is fetched independently; a transcript/comment failure flags
-// transcript_status = failed_retryable but still persists everything else.
-
 import { app, InvocationContext } from "@azure/functions";
-import { enrichVideo } from "../services/enrichmentService";
+import { enrichVideo, type EnrichmentResult } from "../services/enrichmentService";
 import { fetchTranscript, TranscriptUnavailableError } from "../services/transcriptService";
-import { getTopComments, getVideoDetails, type RawComment } from "../services/videoService";
+import { getTopComments, getVideoDetails, type RawComment, type VideoDetails } from "../services/videoService";
 import { videoInsightsRepository } from "../db/repositories";
 import {
   videoIngestionMessageSchema,
@@ -30,6 +23,10 @@ function toCommentRecords(raw: RawComment[]): CommentRecord[] {
   }));
 }
 
+/**
+ * EventHubTrigger on video-ingestion-hub: validates each message and processes
+ * it independently so one bad payload can't poison the batch.
+ */
 export async function processVideoIngestion(
   messages: unknown[],
   context: InvocationContext
@@ -47,6 +44,11 @@ export async function processVideoIngestion(
   }
 }
 
+/**
+ * Extracts metadata, comments, and transcript, runs AI enrichment, then upserts
+ * the VideoInsights document. Resilience rule: never discard successfully
+ * fetched data on partial failure — each source is fetched independently.
+ */
 async function processMessage(
   msg: VideoIngestionMessage,
   context: InvocationContext
@@ -55,30 +57,65 @@ async function processMessage(
   context.log(`Extracting video ${videoId} (channel ${channelId})`);
 
   // Metadata is the backbone; a transient API failure re-throws so the Event
-  // Hub can re-deliver.
-  let details;
+  // Hub can re-deliver. A missing video (deleted/private) is skipped cleanly.
+  const details = await fetchMetadataOrThrow(videoId, context);
+  if (!details) return;
+
+  const { comments, transcript, transcriptStatus } = await extractContent(videoId, context);
+
+  const enrichment = await enrichVideo(
+    {
+      title: details.title,
+      description: details.description,
+      thumbnailUrl: details.thumbnailUrl,
+      transcript,
+      comments: toCommentRecords(comments),
+    },
+    context
+  );
+
+  const existing = await videoInsightsRepository.read(videoId, channelId, context);
+  const doc = buildDocument(msg, details, transcript, transcriptStatus, enrichment, existing);
+
+  await videoInsightsRepository.upsert(doc);
+  logResult(context, videoId, doc);
+}
+
+async function fetchMetadataOrThrow(
+  videoId: string,
+  context: InvocationContext
+): Promise<VideoDetails | null> {
   try {
-    details = await getVideoDetails(videoId);
+    const details = await getVideoDetails(videoId);
+    if (!details) context.warn(`Video ${videoId} not found (deleted/private); skipping`);
+    return details;
   } catch (err) {
     context.error(`Metadata fetch failed for ${videoId}`, err);
     throw err;
   }
-  if (!details) {
-    context.warn(`Video ${videoId} not found (deleted/private); skipping`);
-    return;
-  }
+}
 
-  // Comments (independent).
-  let comments: CommentRecord[] = [];
+interface ExtractedContent {
+  comments: RawComment[];
+  transcript: TranscriptSegment[];
+  transcriptStatus: TranscriptStatus;
+}
+
+// Comments and transcript are fetched independently; either failing flags
+// transcript_status = failed_retryable but never aborts the run.
+async function extractContent(
+  videoId: string,
+  context: InvocationContext
+): Promise<ExtractedContent> {
+  let comments: RawComment[] = [];
   let commentsFailed = false;
   try {
-    comments = toCommentRecords(await getTopComments(videoId, 100));
+    comments = await getTopComments(videoId, 100);
   } catch (err) {
     commentsFailed = true;
     context.warn(`Comment fetch failed for ${videoId} (continuing)`, err);
   }
 
-  // Transcript (independent).
   let transcript: TranscriptSegment[] = [];
   let transcriptStatus: TranscriptStatus = "success";
   try {
@@ -95,26 +132,21 @@ async function processMessage(
     transcriptStatus = "failed_retryable";
   }
 
-  // AI enrichment (never throws; each step degrades independently).
-  const enrichment = await enrichVideo(
-    {
-      title: details.title,
-      description: details.description,
-      thumbnailUrl: details.thumbnailUrl,
-      transcript,
-      comments,
-    },
-    { log: (m) => context.log(m), warn: (m, e) => context.warn(m, e) }
-  );
+  return { comments, transcript, transcriptStatus };
+}
 
-  // Merge with any existing doc so re-runs never discard prior data.
-  const existing = await videoInsightsRepository.read(videoId, channelId, {
-    log: (m) => context.log(m),
-    warn: (m, e) => context.warn(m, e),
-  });
-  const doc: VideoInsights = {
-    id: videoId,
-    channelId,
+// Merges with any existing doc so re-runs never discard prior data.
+function buildDocument(
+  msg: VideoIngestionMessage,
+  details: VideoDetails,
+  transcript: TranscriptSegment[],
+  transcriptStatus: TranscriptStatus,
+  enrichment: EnrichmentResult,
+  existing: VideoInsights | undefined
+): VideoInsights {
+  return {
+    id: msg.videoId,
+    channelId: msg.channelId,
     publishedAt: details.publishedAt ?? msg.publishedAt ?? new Date().toISOString(),
     metadata: {
       title: details.title,
@@ -135,12 +167,13 @@ async function processMessage(
       },
     ],
   };
+}
 
-  await videoInsightsRepository.upsert(doc);
+function logResult(context: InvocationContext, videoId: string, doc: VideoInsights): void {
   const ins = doc.insights;
   context.log(
     `Persisted ${videoId}: ${doc.comments.length} comments, ` +
-      `transcript=${transcriptStatus} (${doc.metadata.transcript.length} segments), ` +
+      `transcript=${doc.metadata.transcript_status} (${doc.metadata.transcript.length} segments), ` +
       `clickbait=${ins.clickbait.verdict} (weighted=${ins.clickbait.weighted_score}, ${ins.clickbait.llm_source}), ` +
       `transcript_sentiment=${ins.transcript_sentiment.label}, ` +
       `comments_overall=${ins.comment_sentiment.overall}`

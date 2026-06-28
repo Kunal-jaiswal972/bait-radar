@@ -1,7 +1,3 @@
-// Orchestrates all AI enrichment and builds the insights block. Every step
-// degrades independently — a Vision/Gemini/Language failure never blocks the
-// others or final persistence.
-
 import { scoreClickbait } from "./clickbaitService";
 import { analyzeSentiments, analyzeSingleSentiment } from "./sentimentService";
 import { analyzeThumbnail } from "./visionService";
@@ -28,22 +24,107 @@ export interface EnrichmentInput {
 
 export interface EnrichmentResult {
   insights: VideoInsightsBlock;
-  comments: CommentRecord[]; // sentiment + confidence populated where available
+  comments: CommentRecord[];
+}
+
+interface ThumbnailEvidence {
+  ocrLines: string[];
+  tags: string[];
+  objects: string[];
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
-// Text of the transcript's first HOOK_WINDOW_SECONDS seconds.
-function hookText(transcript: TranscriptSegment[]): string {
-  return transcript
+/**
+ * Orchestrates every AI step and assembles the insights block. Each step
+ * degrades independently: a Vision/Gemini/Language failure never blocks the
+ * others or final persistence.
+ */
+export async function enrichVideo(
+  input: EnrichmentInput,
+  logger: Logger
+): Promise<EnrichmentResult> {
+  const thumbnail = await analyzeThumbnailEvidence(input.thumbnailUrl, logger);
+
+  const signals: ClickbaitSignals = {
+    title: input.title,
+    description: input.description,
+    tags: thumbnail.tags,
+    objects: thumbnail.objects,
+    thumbnailText: thumbnail.ocrLines,
+  };
+  const clickbait = await scoreClickbait(signals, logger);
+
+  const transcriptLabel = await scoreTranscriptHook(input.transcript, logger);
+  const comments = await scoreCommentSentiment(input.comments, logger);
+
+  return {
+    insights: {
+      thumbnail: { ocr_text: thumbnail.ocrLines, tags: thumbnail.tags, objects: thumbnail.objects },
+      clickbait,
+      transcript_sentiment: { label: transcriptLabel, window_seconds: HOOK_WINDOW_SECONDS },
+      comment_sentiment: summarizeComments(comments),
+    },
+    comments,
+  };
+}
+
+/** Vision OCR + tags + objects; degrades to empty evidence on failure. */
+async function analyzeThumbnailEvidence(
+  thumbnailUrl: string,
+  logger: Logger
+): Promise<ThumbnailEvidence> {
+  try {
+    const vision = await analyzeThumbnail(thumbnailUrl);
+    return { ocrLines: vision.ocrLines, tags: vision.tags, objects: vision.objects };
+  } catch (err) {
+    logger.warn("Vision analysis failed (degrading to no OCR/tags/objects)", err);
+    return { ocrLines: [], tags: [], objects: [] };
+  }
+}
+
+/** Sentiment of the transcript's first HOOK_WINDOW_SECONDS; Neutral on failure. */
+async function scoreTranscriptHook(
+  transcript: TranscriptSegment[],
+  logger: Logger
+): Promise<Sentiment> {
+  const hook = transcript
     .filter((s) => s.start < HOOK_WINDOW_SECONDS)
     .map((s) => s.text)
     .join(" ")
     .trim();
+  if (!hook) return "Neutral";
+
+  try {
+    return (await analyzeSingleSentiment(hook)).sentiment;
+  } catch (err) {
+    logger.warn("Transcript sentiment failed (degrading to Neutral)", err);
+    return "Neutral";
+  }
 }
 
-// Overall comment-sentiment summary: label counts, distribution, and the mean
-// of per-comment confidence scores (overall label = argmax of those means).
+/** Per-comment sentiment + confidence; leaves existing values on failure. */
+async function scoreCommentSentiment(
+  comments: CommentRecord[],
+  logger: Logger
+): Promise<CommentRecord[]> {
+  try {
+    const results = await analyzeSentiments(comments.map((c) => c.text));
+    return comments.map((c, i) => ({
+      ...c,
+      sentiment: results[i].sentiment,
+      confidence: results[i].confidence,
+    }));
+  } catch (err) {
+    logger.warn("Comment sentiment failed (leaving existing values)", err);
+    return comments;
+  }
+}
+
+/**
+ * Aggregates per-comment sentiment into label counts, distribution, and the
+ * mean of confidence scores. The overall label is the argmax of those means.
+ */
 function summarizeComments(comments: CommentRecord[]): CommentSentimentInsights {
   const total = comments.length;
   const counts = { positive: 0, negative: 0, neutral: 0, mixed: 0 };
@@ -89,67 +170,5 @@ function summarizeComments(comments: CommentRecord[]): CommentSentimentInsights 
     },
     average_scores,
     total,
-  };
-}
-
-export async function enrichVideo(
-  input: EnrichmentInput,
-  logger: Logger
-): Promise<EnrichmentResult> {
-  // Vision: OCR + tags + objects.
-  let ocrLines: string[] = [];
-  let tags: string[] = [];
-  let objects: string[] = [];
-  try {
-    const vision = await analyzeThumbnail(input.thumbnailUrl);
-    ocrLines = vision.ocrLines;
-    tags = vision.tags;
-    objects = vision.objects;
-  } catch (err) {
-    logger.warn("Vision analysis failed (degrading to no OCR/tags/objects)", err);
-  }
-
-  // Both clickbait scorers evaluate the same evidence.
-  const signals: ClickbaitSignals = {
-    title: input.title,
-    description: input.description,
-    tags,
-    objects,
-    thumbnailText: ocrLines,
-  };
-  const clickbait = await scoreClickbait(signals, logger);
-
-  // Transcript (hook) sentiment.
-  let transcriptLabel: Sentiment = "Neutral";
-  const hook = hookText(input.transcript);
-  if (hook) {
-    try {
-      transcriptLabel = (await analyzeSingleSentiment(hook)).sentiment;
-    } catch (err) {
-      logger.warn("Transcript sentiment failed (degrading to Neutral)", err);
-    }
-  }
-
-  // Per-comment sentiment + confidence scores.
-  let comments = input.comments;
-  try {
-    const results = await analyzeSentiments(comments.map((c) => c.text));
-    comments = comments.map((c, i) => ({
-      ...c,
-      sentiment: results[i].sentiment,
-      confidence: results[i].confidence,
-    }));
-  } catch (err) {
-    logger.warn("Comment sentiment failed (leaving existing values)", err);
-  }
-
-  return {
-    insights: {
-      thumbnail: { ocr_text: ocrLines, tags, objects },
-      clickbait,
-      transcript_sentiment: { label: transcriptLabel, window_seconds: HOOK_WINDOW_SECONDS },
-      comment_sentiment: summarizeComments(comments),
-    },
-    comments,
   };
 }

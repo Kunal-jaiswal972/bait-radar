@@ -1,11 +1,9 @@
-// Channels container document. Zod-sourced so it can be validated when read
-// back from Cosmos (guards against schema drift).
-
 import { z } from "zod";
 
 export const hubSubscriptionStatusSchema = z.enum(["pending", "verified", "failed"]);
 export type HubSubscriptionStatus = z.infer<typeof hubSubscriptionStatusSchema>;
 
+// Channels container document. Zod-sourced so it can be validated on Cosmos read.
 export const channelSchema = z.object({
   id: z.string(), // == channelId (partition key)
   channelId: z.string(),

@@ -1,7 +1,3 @@
-// Zod-validated environment access. Core services fail fast with a clear error
-// if required vars are missing; feature vars (AI keys, pubsub) are optional and
-// guarded where used. Parsed once and cached.
-
 import { z } from "zod";
 
 const envSchema = z.object({
@@ -14,7 +10,7 @@ const envSchema = z.object({
   COSMOS_DATABASE: z.string().default("ytanalytics"),
   EVENTHUB_NAME: z.string().default("video-ingestion-hub"),
   PUBSUBHUBBUB_HUB_URL: z.string().default("https://pubsubhubbub.appspot.com/subscribe"),
-  GEMINI_MODEL: z.string().default("gemini-2.0-flash"),
+  GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
   PYTHON_BIN: z.string().default("python"),
 
   // Optional: features degrade or are environment-specific.
@@ -33,7 +29,11 @@ export type Env = z.infer<typeof envSchema>;
 
 let cached: Env | undefined;
 
-// Returns the validated environment (cached after first call).
+/**
+ * Returns the validated environment (parsed once, then cached). Core services
+ * fail fast with a clear error if required vars are missing; feature vars (AI
+ * keys, pubsub) are optional and guarded where used.
+ */
 export function env(): Env {
   if (!cached) {
     const parsed = envSchema.safeParse(process.env);

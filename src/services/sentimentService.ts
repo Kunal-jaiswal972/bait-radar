@@ -1,10 +1,7 @@
-// Azure AI Language sentiment: single document (transcript hook) and batched
-// (comments, chunked to the 10-doc service limit).
-
 import { getLanguageClient } from "../clients/languageClient";
 import type { Sentiment, SentimentScores } from "../types";
 
-const MAX_DOCS_PER_REQUEST = 10; // Azure AI Language sentiment limit
+const MAX_DOCS_PER_REQUEST = 10; // Azure AI Language sentiment batch limit
 const MAX_DOC_CHARS = 5000; // under the 5120 service limit
 
 export interface SentimentResult {
@@ -32,8 +29,10 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-// Sentiment + confidence per text, aligned to input order. Empty inputs map to
-// Neutral without consuming a service call slot.
+/**
+ * Sentiment + confidence per text, aligned to input order. Empty inputs map to
+ * Neutral without consuming a service call slot.
+ */
 export async function analyzeSentiments(texts: string[]): Promise<SentimentResult[]> {
   const results: SentimentResult[] = texts.map(() => ({ ...NEUTRAL_RESULT }));
 
@@ -64,7 +63,7 @@ export async function analyzeSentiments(texts: string[]): Promise<SentimentResul
   return results;
 }
 
-// Sentiment of a single string (e.g. the transcript hook).
+/** Sentiment of a single string (e.g. the transcript hook). */
 export async function analyzeSingleSentiment(text: string): Promise<SentimentResult> {
   const trimmed = text.trim().slice(0, MAX_DOC_CHARS);
   if (!trimmed) return { ...NEUTRAL_RESULT };

@@ -1,5 +1,3 @@
-// Azure AI Vision (Image Analysis 4.0) client singleton.
-
 import createImageAnalysisClient, {
   type ImageAnalysisClient,
 } from "@azure-rest/ai-vision-image-analysis";
@@ -8,6 +6,7 @@ import { env } from "../config/env";
 
 let client: ImageAnalysisClient | undefined;
 
+/** Azure AI Vision (Image Analysis 4.0) client singleton. */
 export function getVisionClient(): ImageAnalysisClient {
   if (!client) {
     const e = env();

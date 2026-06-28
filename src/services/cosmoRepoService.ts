@@ -1,7 +1,3 @@
-// Generic Cosmos repository factory: binds a container to a Zod schema so every
-// read and query is validated centrally. Consumers never re-implement
-// validation; invalid documents (schema drift) are logged and skipped.
-
 import type { SqlQuerySpec } from "@azure/cosmos";
 import { z } from "zod";
 import type { Logger } from "../types";
@@ -13,6 +9,11 @@ export interface Repository<T> {
   query(query: string | SqlQuerySpec, logger?: Logger): Promise<T[]>;
 }
 
+/**
+ * Binds a Cosmos container to a Zod schema so every read and query is validated
+ * centrally. Consumers never re-implement validation; documents that fail
+ * (schema drift) are logged and skipped.
+ */
 export function createRepository<S extends z.ZodTypeAny>(
   containerId: string,
   schema: S

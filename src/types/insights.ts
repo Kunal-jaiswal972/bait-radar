@@ -1,11 +1,7 @@
-// The insights block: all external AI outputs + derived calculations.
-// Persisted shapes are Zod-sourced (validated on Cosmos read); ClickbaitSignals
-// is internal-only and stays a plain interface.
-
 import { z } from "zod";
 import { clickbaitLabelSchema, sentimentSchema, sentimentScoresSchema } from "./common";
 
-// Identical evidence fed to both clickbait scorers (heuristic + LLM).
+/** Identical evidence fed to both clickbait scorers (heuristic + LLM). Internal-only, never persisted. */
 export interface ClickbaitSignals {
   title: string;
   description: string;
@@ -14,7 +10,7 @@ export interface ClickbaitSignals {
   thumbnailText: string[]; // OCR text overlays
 }
 
-// Raw Azure AI Vision output for the thumbnail.
+/** Raw Azure AI Vision output for the thumbnail. */
 export const thumbnailInsightsSchema = z.object({
   ocr_text: z.array(z.string()),
   tags: z.array(z.string()),
@@ -22,7 +18,7 @@ export const thumbnailInsightsSchema = z.object({
 });
 export type ThumbnailInsights = z.infer<typeof thumbnailInsightsSchema>;
 
-// Clickbait scores + their human-readable labels.
+/** Clickbait scores + their human-readable labels. */
 export const clickbaitInsightsSchema = z.object({
   heuristic_score: z.number(),
   heuristic_label: clickbaitLabelSchema,
@@ -37,7 +33,7 @@ export const clickbaitInsightsSchema = z.object({
 });
 export type ClickbaitInsights = z.infer<typeof clickbaitInsightsSchema>;
 
-// Sentiment of the first N seconds of the transcript.
+/** Sentiment of the first N seconds of the transcript. */
 export const transcriptSentimentInsightsSchema = z.object({
   label: sentimentSchema,
   window_seconds: z.number(),
@@ -51,7 +47,7 @@ const sentimentBucketsSchema = z.object({
   mixed: z.number(),
 });
 
-// Overall sentiment across all comments.
+/** Overall sentiment aggregated across all comments. */
 export const commentSentimentInsightsSchema = z.object({
   overall: sentimentSchema,
   counts: sentimentBucketsSchema,

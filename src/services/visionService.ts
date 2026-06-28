@@ -1,5 +1,3 @@
-// Thumbnail analysis: OCR, tags, and objects via Azure AI Vision.
-
 import { isUnexpected } from "@azure-rest/ai-vision-image-analysis";
 import { getVisionClient } from "../clients/visionClient";
 
@@ -34,8 +32,10 @@ async function analyze(imageUrl: string, features: string[]): Promise<VisionResu
   return { ocrLines, tags, objects };
 }
 
-// Analyzes a thumbnail. Tags/Objects are region-limited, so on failure we retry
-// with Read-only; OCR is what the rest of the pipeline relies on.
+/**
+ * Analyzes a thumbnail. Tags/Objects are region-limited, so on failure we retry
+ * with Read-only; OCR is what the rest of the pipeline relies on.
+ */
 export async function analyzeThumbnail(imageUrl: string): Promise<VisionResult> {
   try {
     return await analyze(imageUrl, ["Read", "Tags", "Objects"]);

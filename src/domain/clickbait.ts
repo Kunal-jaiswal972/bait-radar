@@ -1,5 +1,3 @@
-// Pure clickbait logic: heuristic scoring, score merge, and verdict labels.
-
 import type { ClickbaitLabel, ClickbaitSignals } from "../types";
 
 export interface ScoreMerge {
@@ -9,7 +7,7 @@ export interface ScoreMerge {
   max_score: number;
 }
 
-// At/above this weighted score a video is flagged as clickbait.
+/** At/above this weighted score a video is flagged as clickbait. */
 export const CLICKBAIT_THRESHOLD = 0.5;
 
 // Absolute / sensational words that correlate with clickbait.
@@ -39,7 +37,7 @@ function absoluteWordHits(text: string): number {
   return ABSOLUTE_WORDS.reduce((n, w) => (lower.includes(w) ? n + 1 : n), 0);
 }
 
-// Maps any 0..1 clickbait score to a human-readable verdict.
+/** Maps any 0..1 clickbait score to a human-readable verdict. */
 export function clickbaitLabel(score: number): ClickbaitLabel {
   if (score >= 0.8) return "Highly Clickbait";
   if (score >= 0.6) return "Likely Clickbait";
@@ -47,8 +45,10 @@ export function clickbaitLabel(score: number): ClickbaitLabel {
   return "Not Clickbait";
 }
 
-// Rule-based 0..1 score from the same signals the LLM sees: overlay presence,
-// ALL CAPS ratio, absolute words, and punctuation intensity (each capped).
+/**
+ * Rule-based 0..1 score from the same signals the LLM sees: overlay presence,
+ * ALL CAPS ratio, absolute words, and punctuation intensity (each capped).
+ */
 export function heuristicScore(signals: ClickbaitSignals): number {
   const { title, description, tags, objects, thumbnailText } = signals;
   const overlay = thumbnailText.join(" ");
@@ -65,7 +65,7 @@ export function heuristicScore(signals: ClickbaitSignals): number {
   return round2(clamp01(overlaySignal + capsSignal + absoluteSignal + punctSignal));
 }
 
-// Combines the two scores: weighted = 0.3*heuristic + 0.7*llm; max = the higher.
+/** Combines the two scores: weighted = 0.3*heuristic + 0.7*llm; max = the higher. */
 export function mergeScores(heuristic: number, llm: number): ScoreMerge {
   const h = clamp01(heuristic);
   const l = clamp01(llm);

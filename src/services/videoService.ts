@@ -1,5 +1,3 @@
-// YouTube video metadata + top comments via the Data API.
-
 import { buildYoutubeUrl } from "../clients/youtubeClient";
 
 export interface VideoDetails {
@@ -22,8 +20,7 @@ interface YtThumbnail {
   url: string;
 }
 
-// Fetches snippet + statistics. Returns null if the video is missing
-// (deleted/private) so the caller can skip cleanly.
+/** Fetches snippet + statistics. Returns null if the video is missing (deleted/private). */
 export async function getVideoDetails(videoId: string): Promise<VideoDetails | null> {
   const url = buildYoutubeUrl("videos", { part: "snippet,statistics", id: videoId });
 
@@ -65,8 +62,10 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails | n
   };
 }
 
-// Fetches up to `max` relevance-ordered top-level comments. Returns [] when
-// comments are disabled (permanent); throws on transient errors.
+/**
+ * Fetches up to `max` relevance-ordered top-level comments. Returns [] when
+ * comments are disabled (permanent); throws on transient errors.
+ */
 export async function getTopComments(videoId: string, max = 100): Promise<RawComment[]> {
   const url = buildYoutubeUrl("commentThreads", {
     part: "snippet",

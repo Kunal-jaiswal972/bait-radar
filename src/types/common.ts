@@ -1,7 +1,7 @@
-// Primitive shared types. The enums/scores are Zod-sourced because they appear
-// in validated persisted documents; types are inferred from the schemas.
-
 import { z } from "zod";
+
+// Primitive shared types. Enums/scores are Zod-sourced because they appear in
+// validated persisted documents; their TS types are inferred from the schemas.
 
 export const transcriptStatusSchema = z.enum([
   "success",
@@ -21,7 +21,7 @@ export const clickbaitLabelSchema = z.enum([
 ]);
 export type ClickbaitLabel = z.infer<typeof clickbaitLabelSchema>;
 
-// Azure AI Language per-document confidence scores (0..1).
+/** Azure AI Language per-document confidence scores (0..1). */
 export const sentimentScoresSchema = z.object({
   positive: z.number(),
   neutral: z.number(),
@@ -29,7 +29,7 @@ export const sentimentScoresSchema = z.object({
 });
 export type SentimentScores = z.infer<typeof sentimentScoresSchema>;
 
-// Minimal logger so services can report without depending on the Functions SDK.
+/** Minimal logger so services can report without depending on the Functions SDK. */
 export interface Logger {
   log: (msg: string) => void;
   warn: (msg: string, err?: unknown) => void;

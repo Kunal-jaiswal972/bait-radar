@@ -1,13 +1,14 @@
-// /api/webhook/youtube
-//   GET  -> PubSubHubbub verification handshake (echo hub.challenge)
-//   POST -> parse Atom upload, publish to video-ingestion-hub, return 202
-
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { env } from "../config/env";
 import { parseAtomUpload } from "../domain/atom";
 import { markSubscriptionVerified } from "../services/channelService";
 import { publishVideoIngestion } from "../services/ingestionService";
 
+/**
+ * /api/webhook/youtube
+ *   GET  -> PubSubHubbub verification handshake (echo hub.challenge)
+ *   POST -> parse Atom upload, publish to video-ingestion-hub, return 202
+ */
 export async function youtubeWebhookHandler(
   request: HttpRequest,
   context: InvocationContext
@@ -35,10 +36,10 @@ function handleVerification(request: HttpRequest, context: InvocationContext): H
   if (mode === "subscribe" && topic) {
     const channelId = new URL(topic).searchParams.get("channel_id") ?? undefined;
     if (channelId) {
-      markSubscriptionVerified(channelId, {
-        log: (m) => context.log(m),
-        warn: (m, e) => context.warn(m, e),
-      }).catch((err) => context.warn("Could not update subscription status", err));
+      // Best-effort; the challenge response must not wait on Cosmos.
+      markSubscriptionVerified(channelId, context).catch((err) =>
+        context.warn("Could not update subscription status", err)
+      );
     }
   }
 

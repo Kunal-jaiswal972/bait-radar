@@ -1,14 +1,13 @@
-// Channel registration: resolve a channel id, persist it, and manage the
-// PubSubHubbub subscription. Reads go through the validated channelRepository.
-
 import { buildYoutubeUrl } from "../clients/youtubeClient";
 import { env } from "../config/env";
 import { topicUrlForChannel } from "../domain/atom";
 import { channelRepository } from "../db/repositories";
 import type { Channel, Logger } from "../types";
 
-// Resolves a canonical channel id from a raw id, a /channel/UC... URL, or a
-// handle/custom URL (the latter requires a YouTube Data API lookup).
+/**
+ * Resolves a canonical channel id from a raw id, a /channel/UC... URL, or a
+ * handle/custom URL (the latter requires a YouTube Data API lookup).
+ */
 export async function resolveChannelId(input: string): Promise<string> {
   const value = input.trim();
 
@@ -17,19 +16,26 @@ export async function resolveChannelId(input: string): Promise<string> {
   const channelMatch = value.match(/channel\/(UC[\w-]{22})/);
   if (channelMatch) return channelMatch[1];
 
-  // Handle forms: "@name", ".../@name", ".../c/name", ".../user/name".
-  let handle: string | undefined;
-  const atMatch = value.match(/@([\w.-]+)/);
-  if (atMatch) handle = atMatch[1];
-  else {
-    const customMatch = value.match(/\/(?:c|user)\/([\w.-]+)/);
-    if (customMatch) handle = customMatch[1];
-  }
-  if (!handle && /^[\w.-]+$/.test(value)) handle = value; // bare token -> handle
+  const handle = extractHandle(value);
   if (!handle) {
     throw new Error(`Could not derive a channel id from input: "${input}"`);
   }
+  return lookupChannelIdByHandle(handle);
+}
 
+// Pulls a handle from "@name", ".../@name", ".../c/name", ".../user/name", or a bare token.
+function extractHandle(value: string): string | undefined {
+  const atMatch = value.match(/@([\w.-]+)/);
+  if (atMatch) return atMatch[1];
+
+  const customMatch = value.match(/\/(?:c|user)\/([\w.-]+)/);
+  if (customMatch) return customMatch[1];
+
+  if (/^[\w.-]+$/.test(value)) return value;
+  return undefined;
+}
+
+async function lookupChannelIdByHandle(handle: string): Promise<string> {
   const url = buildYoutubeUrl("channels", { part: "id", forHandle: handle.replace(/^@/, "") });
   const res = await fetch(url);
   if (!res.ok) {
@@ -41,7 +47,7 @@ export async function resolveChannelId(input: string): Promise<string> {
   return id;
 }
 
-// Sends an async subscribe request; the hub confirms via a GET challenge to the
+// Fires an async subscribe request; the hub confirms via a GET challenge to the
 // callback (handled by the webhook function).
 async function sendSubscriptionRequest(channelId: string): Promise<void> {
   const e = env();
@@ -73,8 +79,10 @@ export interface RegisterChannelResult {
   subscriptionRequested: boolean;
 }
 
-// Resolves + persists the channel, then fires the subscription request. The
-// channel is always saved; a subscription failure is non-fatal.
+/**
+ * Resolves + persists the channel, then fires the subscription request. The
+ * channel is always saved; a subscription failure is non-fatal.
+ */
 export async function registerChannel(
   input: string,
   logger: Logger
@@ -105,7 +113,7 @@ export async function registerChannel(
   return { channelId, hubSubscriptionStatus: doc.hubSubscriptionStatus, subscriptionRequested };
 }
 
-// Marks a channel's subscription verified (called from the webhook handshake).
+/** Marks a channel's subscription verified (called from the webhook handshake). */
 export async function markSubscriptionVerified(
   channelId: string,
   logger?: Logger

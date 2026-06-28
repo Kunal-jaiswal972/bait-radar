@@ -1,6 +1,3 @@
-// Cosmos DB client singleton + container access. All containers partition on
-// /channelId. No business logic lives here.
-
 import { Container, CosmosClient, Database } from "@azure/cosmos";
 import { env } from "../config/env";
 
@@ -27,8 +24,11 @@ async function getDatabase(): Promise<Database> {
   return database;
 }
 
-// Returns a container, creating the database/container on first use. Cached
-// per-process so warm invocations are cheap.
+/**
+ * Returns a container, creating the database/container on first use. Cached
+ * per-process so warm invocations are cheap. All containers partition on
+ * /channelId.
+ */
 export async function getContainer(containerId: string): Promise<Container> {
   const cached = containerCache.get(containerId);
   if (cached) return cached;

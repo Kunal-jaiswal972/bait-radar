@@ -4,7 +4,7 @@
 
 ## 1. Goal
 
-A serverless, event-driven pipeline that ingests YouTube channel uploads via webhook, extracts metadata/comments/transcripts, runs AI clickbait + sentiment analysis, persists to Cosmos DB, tracks engagement velocity over time, and exposes the data to a Power BI dashboard with write-back actions.
+A serverless, event-driven pipeline that ingests YouTube channel uploads via webhook, extracts metadata/comments/transcripts, runs AI clickbait + sentiment analysis, persists to Cosmos DB, tracks engagement velocity over time, and exposes the data to a React dashboard with write-back actions.
 
 ## 2. Architecture at a Glance
 
@@ -27,13 +27,13 @@ A serverless, event-driven pipeline that ingests YouTube channel uploads via web
                           (YouTube Data API + Python transcript)│
                                                                 ▼
                                                        AI Processing Layer
-                                          (Vision + Gemini→AOAI fallback + AI Language)
+                                             (Vision + Gemini + AI Language)
                                                                 ▼
                                                      Cosmos: VideoInsights (upsert)
                                                                 ▲
                           TimerTrigger (daily 23:30 IST) ───────┘  (append timeline + new comments)
 
-                          Cosmos: VideoInsights ──read──▶ Power BI (DirectQuery / import)
+                          Cosmos: VideoInsights ──read──▶ Dashboard API (HTTP fns) ──▶ React SPA
 ```
 
 ## 3. Tech Stack (locked)
@@ -49,6 +49,7 @@ A serverless, event-driven pipeline that ingests YouTube channel uploads via web
 | LLM | Gemini Flash API (sole provider — no Azure OpenAI) |
 | NLP | Azure AI Language (sentiment) |
 | Transcripts | Python `youtube-transcript-api` via `child_process.spawn()` |
+| Frontend | React + Vite + TypeScript SPA (consumes the dashboard API) |
 | OUT OF SCOPE | FFmpeg / video frame extraction / blob / S3 |
 
 ## 4. Target File Structure
@@ -158,7 +159,7 @@ Each phase lists **deliverables**, **commands**, and **acceptance criteria**. Or
 **Commands**
 - `bun add @azure-rest/ai-vision-image-analysis @azure/ai-language-text @google/generative-ai`
 
-**Acceptance:** Given a video record, produces `clickbait_breakdown`, `thumbnail_text`, `hook_sentiment`, and per-comment sentiment; Gemini outage transparently falls back to AOAI.
+**Acceptance:** Given a video record, produces the clickbait block, thumbnail OCR/tags/objects, transcript-hook sentiment, and per-comment sentiment; a Gemini outage transparently degrades to the heuristic score.
 
 ---
 
@@ -195,18 +196,27 @@ Each phase lists **deliverables**, **commands**, and **acceptance criteria**. Or
 
 ---
 
-## Phase 7 — Power BI Frontend Integration Guide *(Task 7, docs only)*
+## Phase 7 — React Dashboard Frontend *(Task 7)*
 
-**Deliverables (documentation, no `.pbix`)**
-- Cosmos DB → Power BI connector setup (DirectQuery vs import guidance).
-- **Page 1 — Channel List:** table, aggregate sentiment gauges, total views, engagement trend line charts. DAX measures provided.
-- **Page 2 — Videos:** card/gallery (trellis) with thumbnail Image URL, title, publish date, `max_score`; cross-page drill-through filter.
-- **Page 3 — Individual Video:** view-count timeline, sentiment donut, unnested conditionally-formatted comments table, transcript expand/collapse matrix.
-  - **Refresh button:** Power Automate visual → HTTP POST to APIM `/refresh` passing `videoId`. Step-by-step config.
-  - **Transcript upload:** Power Apps canvas visual (text input + submit) → POST to APIM `/transcript`. Step-by-step config.
-- DAX query snippets for each measure.
+> Scope placeholder — kept intentionally light now; we expand the detailed spec when we reach this phase.
 
-**Acceptance:** A reviewer can follow the guide end-to-end to build the 3-page dashboard with both write-back actions wired.
+**Deliverables**
+- Read-only **dashboard API** (HTTP functions) the SPA calls — separate from the write-back endpoints in Phase 6:
+  - `GET /api/dashboard/channels` — list channels with rollups.
+  - `GET /api/dashboard/channels/{channelId}/videos` — videos for a channel.
+  - `GET /api/dashboard/videos/{videoId}` — full insights for one video.
+- **React + Vite + TypeScript SPA** in a separate `web/` workspace, consuming those endpoints (typed client, ideally sharing the Zod schemas from `src/types`).
+- Three views, mirroring the data model:
+  - **Channel List** — table + aggregate sentiment / total views / engagement trend.
+  - **Videos** — thumbnail gallery (title, publish date, clickbait `verdict` + `max_score`), drill-through to a video.
+  - **Individual Video** — view-count timeline, sentiment donut, comments table, transcript view.
+- **Write-back actions** wired to the Phase 6 endpoints: a *Refresh* button → `POST /refresh`, and a *Transcript upload* form → `POST /transcript`.
+- CORS + routing via APIM; SPA hosted on Azure Static Web Apps (or served statically).
+
+**Commands**
+- `bun create vite web --template react-ts` (or equivalent) inside the repo.
+
+**Acceptance:** The SPA lists channels, drills into a video's insights, and both write-back actions succeed against the deployed API.
 
 ---
 

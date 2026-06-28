@@ -1,9 +1,9 @@
-// VideoInsights container document and its sub-shapes. Zod-sourced so the doc
-// can be validated when read back from Cosmos (guards against schema drift).
-
 import { z } from "zod";
 import { sentimentSchema, sentimentScoresSchema, transcriptStatusSchema } from "./common";
 import { videoInsightsBlockSchema } from "./insights";
+
+// VideoInsights container document and its sub-shapes. Zod-sourced so the whole
+// doc can be validated when read back from Cosmos (guards against schema drift).
 
 export const transcriptSegmentSchema = z.object({
   text: z.string(),
@@ -12,7 +12,6 @@ export const transcriptSegmentSchema = z.object({
 });
 export type TranscriptSegment = z.infer<typeof transcriptSegmentSchema>;
 
-// The video's own data.
 export const videoMetadataSchema = z.object({
   title: z.string(),
   description: z.string(),
@@ -33,7 +32,7 @@ export const commentRecordSchema = z.object({
 });
 export type CommentRecord = z.infer<typeof commentRecordSchema>;
 
-// One snapshot in the engagement-velocity time series.
+/** One snapshot in the engagement-velocity time series. */
 export const timelinePointSchema = z.object({
   timestamp: z.string(),
   views: z.number(),

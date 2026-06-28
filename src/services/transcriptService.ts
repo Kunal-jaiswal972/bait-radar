@@ -1,6 +1,3 @@
-// Runs the Python transcript scraper via child_process and parses its JSON,
-// distinguishing permanent "no transcript" from transient errors.
-
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { env } from "../config/env";
@@ -8,8 +5,10 @@ import type { TranscriptSegment } from "../types";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
-export class TranscriptUnavailableError extends Error {} // permanent: disabled / none
-export class TranscriptFetchError extends Error {} // transient: retry later
+/** Permanent: transcript is disabled or none exists. */
+export class TranscriptUnavailableError extends Error {}
+/** Transient: retry later (-> transcript_status = failed_retryable). */
+export class TranscriptFetchError extends Error {}
 
 // Python sources aren't compiled into dist/, so resolve from cwd (project root).
 function scriptPath(): string {
@@ -17,8 +16,11 @@ function scriptPath(): string {
   return path.join(base, "fetch_transcript.py");
 }
 
-// Resolves transcript segments; rejects with TranscriptUnavailableError (no
-// transcript) or TranscriptFetchError (transient -> failed_retryable).
+/**
+ * Runs the Python transcript scraper via child_process and parses its JSON.
+ * Rejects with TranscriptUnavailableError (none) or TranscriptFetchError
+ * (transient), distinguished by the script's exit code.
+ */
 export function fetchTranscript(
   videoId: string,
   timeoutMs = DEFAULT_TIMEOUT_MS

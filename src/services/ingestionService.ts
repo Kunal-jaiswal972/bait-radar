@@ -1,9 +1,7 @@
-// Publishes video-ingestion messages to the Event Hub.
-
 import { getEventHubProducer } from "../clients/eventHubClient";
 import type { VideoIngestionMessage } from "../types";
 
-// Publishes one message, partitioned by channelId to keep a channel's events ordered.
+/** Publishes one ingestion message, partitioned by channelId to keep a channel's events ordered. */
 export async function publishVideoIngestion(message: VideoIngestionMessage): Promise<void> {
   const client = getEventHubProducer();
   const batch = await client.createBatch({ partitionKey: message.channelId });
