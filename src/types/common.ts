@@ -13,13 +13,15 @@ export type TranscriptStatus = z.infer<typeof transcriptStatusSchema>;
 export const sentimentSchema = z.enum(["Positive", "Negative", "Neutral", "Mixed"]);
 export type Sentiment = z.infer<typeof sentimentSchema>;
 
-export const clickbaitLabelSchema = z.enum([
-  "Not Clickbait",
-  "Mildly Clickbait",
-  "Likely Clickbait",
-  "Highly Clickbait",
+// 5-level clickbait likelihood the dashboard renders from clickbait_percentage.
+export const likelihoodSchema = z.enum([
+  "Least Likely",
+  "Less Likely",
+  "Normal",
+  "Highly Likely",
+  "Most Likely",
 ]);
-export type ClickbaitLabel = z.infer<typeof clickbaitLabelSchema>;
+export type Likelihood = z.infer<typeof likelihoodSchema>;
 
 /** Azure AI Language per-document confidence scores (0..1). */
 export const sentimentScoresSchema = z.object({

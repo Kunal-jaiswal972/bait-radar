@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { clickbaitLabelSchema, sentimentSchema, sentimentScoresSchema } from "./common";
+import { likelihoodSchema, sentimentSchema, sentimentScoresSchema } from "./common";
 
-/** Identical evidence fed to both clickbait scorers (heuristic + LLM). Internal-only, never persisted. */
+/** Evidence fed to the packaging scorers (heuristic + LLM). Internal-only, never persisted. */
 export interface ClickbaitSignals {
   title: string;
   description: string;
+  thumbnailUrl: string; // sent to Gemini as a multimodal image part
   tags: string[];
   objects: string[];
   thumbnailText: string[]; // OCR text overlays
@@ -18,18 +19,44 @@ export const thumbnailInsightsSchema = z.object({
 });
 export type ThumbnailInsights = z.infer<typeof thumbnailInsightsSchema>;
 
-/** Clickbait scores + their human-readable labels. */
-export const clickbaitInsightsSchema = z.object({
+// Pillar 1 — packaging bait: title + description + thumbnail (heuristic + Gemini).
+export const packagingPillarSchema = z.object({
   heuristic_score: z.number(),
-  heuristic_label: clickbaitLabelSchema,
   llm_score: z.number(),
-  llm_label: clickbaitLabelSchema,
-  llm_source: z.string(),
-  weighted_score: z.number(),
-  max_score: z.number(),
-  max_label: clickbaitLabelSchema,
-  verdict: clickbaitLabelSchema,
-  is_clickbait: z.boolean(),
+  llm_source: z.string(), // model name, or "heuristic_fallback"
+  score: z.number(), // merged: 0.3*heuristic + 0.7*llm
+});
+export type PackagingPillar = z.infer<typeof packagingPillarSchema>;
+
+// Pillar 2 — promise–payoff mismatch: does the content deliver the title's promise?
+export const mismatchPillarSchema = z.object({
+  available: z.boolean(), // false when there is no transcript
+  score: z.number(), // 0..1, higher = bigger gap
+  source: z.string(), // "gemini" | "lexical_fallback" | "unavailable"
+});
+export type MismatchPillar = z.infer<typeof mismatchPillarSchema>;
+
+// Pillar 3 — audience betrayal: comments calling out clickbait.
+export const betrayalPillarSchema = z.object({
+  score: z.number(), // 0..1 (betrayal_rate scaled)
+  betrayal_rate: z.number(), // fraction of comments flagged
+  flagged_count: z.number(),
+  total_comments: z.number(),
+});
+export type BetrayalPillar = z.infer<typeof betrayalPillarSchema>;
+
+// The merged clickbait index: pillars + weighted aggregate + likelihood label.
+export const clickbaitInsightsSchema = z.object({
+  packaging: packagingPillarSchema,
+  mismatch: mismatchPillarSchema,
+  betrayal: betrayalPillarSchema,
+  clickbait_percentage: z.number(), // 0..100, rough estimate
+  likelihood: likelihoodSchema,
+  weights: z.object({
+    packaging: z.number(),
+    mismatch: z.number(),
+    betrayal: z.number(),
+  }), // effective weights (renormalized when mismatch is unavailable)
 });
 export type ClickbaitInsights = z.infer<typeof clickbaitInsightsSchema>;
 

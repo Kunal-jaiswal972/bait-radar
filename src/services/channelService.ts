@@ -1,8 +1,9 @@
 import { buildYoutubeUrl } from "../clients/youtubeClient";
 import { env } from "../config/env";
 import { topicUrlForChannel } from "../domain/atom";
-import { channelRepository } from "../db/repositories";
-import type { Channel, Logger } from "../types";
+import { aggregateChannel } from "../domain/clickbait";
+import { channelRepository, videoInsightsRepository } from "../db/repositories";
+import type { Channel, ChannelClickbait, Logger } from "../types";
 
 /**
  * Resolves a canonical channel id from a raw id, a /channel/UC... URL, or a
@@ -111,6 +112,48 @@ export async function registerChannel(
   }
 
   return { channelId, hubSubscriptionStatus: doc.hubSubscriptionStatus, subscriptionRequested };
+}
+
+interface VideoStatRow {
+  publishedAt: string;
+  pct: number;
+  betrayal: number;
+}
+
+/**
+ * Recomputes the channel's clickbait propensity from its analyzed videos and
+ * persists it onto the Channels doc. Uses a projected query (just the three
+ * numbers it needs) rather than loading full video documents.
+ */
+export async function updateChannelClickbait(
+  channelId: string,
+  logger?: Logger
+): Promise<ChannelClickbait | undefined> {
+  const rows = await videoInsightsRepository.queryProjection<VideoStatRow>({
+    query:
+      "SELECT c.publishedAt AS publishedAt, " +
+      "c.insights.clickbait.clickbait_percentage AS pct, " +
+      "c.insights.clickbait.betrayal.betrayal_rate AS betrayal " +
+      "FROM c WHERE c.channelId = @c",
+    parameters: [{ name: "@c", value: channelId }],
+  });
+  if (rows.length === 0) return undefined;
+
+  const rollup = aggregateChannel(
+    rows.map((r) => ({
+      clickbait_percentage: r.pct ?? 0,
+      publishedAt: r.publishedAt,
+      betrayal_rate: r.betrayal ?? 0,
+    }))
+  );
+
+  const channel = await channelRepository.read(channelId, channelId, logger);
+  if (!channel) return undefined;
+  const clickbait: ChannelClickbait = { ...rollup, updated_at: new Date().toISOString() };
+  channel.clickbait = clickbait;
+  channel.updatedAt = new Date().toISOString();
+  await channelRepository.upsert(channel);
+  return clickbait;
 }
 
 /** Marks a channel's subscription verified (called from the webhook handshake). */

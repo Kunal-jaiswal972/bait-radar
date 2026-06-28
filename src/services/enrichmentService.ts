@@ -1,7 +1,10 @@
-import { scoreClickbait } from "./clickbaitService";
+import { scorePackaging } from "./clickbaitService";
+import { scoreMismatch } from "./mismatchService";
 import { analyzeSentiments, analyzeSingleSentiment } from "./sentimentService";
 import { analyzeThumbnail } from "./visionService";
+import { aggregateClickbait, betrayalFromComments, likelihoodLabel } from "../domain/clickbait";
 import type {
+  ClickbaitInsights,
   ClickbaitSignals,
   CommentRecord,
   CommentSentimentInsights,
@@ -36,9 +39,9 @@ interface ThumbnailEvidence {
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /**
- * Orchestrates every AI step and assembles the insights block. Each step
- * degrades independently: a Vision/Gemini/Language failure never blocks the
- * others or final persistence.
+ * Orchestrates every AI step and assembles the insights block. Each step degrades
+ * independently: a Vision/Gemini/Language failure never blocks the others or
+ * final persistence.
  */
 export async function enrichVideo(
   input: EnrichmentInput,
@@ -49,23 +52,61 @@ export async function enrichVideo(
   const signals: ClickbaitSignals = {
     title: input.title,
     description: input.description,
+    thumbnailUrl: input.thumbnailUrl,
     tags: thumbnail.tags,
     objects: thumbnail.objects,
     thumbnailText: thumbnail.ocrLines,
   };
-  const clickbait = await scoreClickbait(signals, logger);
 
-  const transcriptLabel = await scoreTranscriptHook(input.transcript, logger);
-  const comments = await scoreCommentSentiment(input.comments, logger);
+  // Independent AI calls run concurrently; each already degrades on failure.
+  const [packaging, mismatch, transcriptLabel, scoredComments] = await Promise.all([
+    scorePackaging(signals, logger),
+    scoreMismatch(
+      { title: input.title, thumbnailText: thumbnail.ocrLines, transcript: input.transcript },
+      logger
+    ),
+    scoreTranscriptHook(input.transcript, logger),
+    scoreCommentSentiment(input.comments, logger),
+  ]);
+
+  const clickbait = mergeClickbait(packaging, mismatch, input.comments);
 
   return {
     insights: {
       thumbnail: { ocr_text: thumbnail.ocrLines, tags: thumbnail.tags, objects: thumbnail.objects },
       clickbait,
       transcript_sentiment: { label: transcriptLabel, window_seconds: HOOK_WINDOW_SECONDS },
-      comment_sentiment: summarizeComments(comments),
+      comment_sentiment: summarizeComments(scoredComments),
     },
-    comments,
+    comments: scoredComments,
+  };
+}
+
+/** Combines the three pillars into the weighted clickbait index + likelihood label. */
+function mergeClickbait(
+  packaging: ClickbaitInsights["packaging"],
+  mismatch: ClickbaitInsights["mismatch"],
+  comments: CommentRecord[]
+): ClickbaitInsights {
+  const betrayal = betrayalFromComments(comments);
+  const agg = aggregateClickbait({
+    packaging: packaging.score,
+    mismatch: mismatch.available ? mismatch.score : null,
+    betrayal: betrayal.score,
+  });
+
+  return {
+    packaging,
+    mismatch,
+    betrayal: {
+      score: betrayal.score,
+      betrayal_rate: betrayal.betrayal_rate,
+      flagged_count: betrayal.flagged_count,
+      total_comments: betrayal.total_comments,
+    },
+    clickbait_percentage: agg.percentage,
+    likelihood: likelihoodLabel(agg.percentage),
+    weights: agg.weights,
   };
 }
 
@@ -114,6 +155,7 @@ async function scoreCommentSentiment(
       ...c,
       sentiment: results[i].sentiment,
       confidence: results[i].confidence,
+      opinions: results[i].opinions,
     }));
   } catch (err) {
     logger.warn("Comment sentiment failed (leaving existing values)", err);
@@ -122,8 +164,8 @@ async function scoreCommentSentiment(
 }
 
 /**
- * Aggregates per-comment sentiment into label counts, distribution, and the
- * mean of confidence scores. The overall label is the argmax of those means.
+ * Aggregates per-comment sentiment into label counts, distribution, and the mean
+ * of confidence scores. The overall label is the argmax of those means.
  */
 function summarizeComments(comments: CommentRecord[]): CommentSentimentInsights {
   const total = comments.length;

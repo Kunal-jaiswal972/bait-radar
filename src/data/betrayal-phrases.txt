@@ -1,0 +1,101 @@
+# Phrases viewers use when they feel a video's packaging misled them.
+# Drives the audience-betrayal pillar (alongside Azure Opinion Mining).
+# One entry per line. Single words match on token boundaries; multi-word entries
+# match as substrings. Lines starting with # are comments.
+
+# --- direct clickbait accusations ---
+clickbait
+click bait
+clickbaited
+clickbaiting
+baited
+bait and switch
+bait-and-switch
+such clickbait
+total clickbait
+pure clickbait
+this is clickbait
+feels like clickbait
+so much clickbait
+reported for clickbait
+
+# --- deception / dishonesty ---
+false advertising
+false advertisement
+misleading
+mislead
+misled
+lied
+lying
+liar
+scam
+scammed
+fraud
+deceptive
+deceiving
+deceived
+dishonest
+fake
+faked
+
+# --- promise not delivered ---
+where is the
+where was the
+where's the
+nothing happened
+nothing actually happened
+didn't happen
+did not happen
+never happened
+doesn't happen
+doesn't deliver
+did not deliver
+didn't deliver
+never delivered
+false promise
+broke the promise
+not what i expected
+not as advertised
+not what was promised
+did not match
+didn't match
+
+# --- title / thumbnail callouts ---
+title says
+the title said
+the title is
+clickbait title
+false title
+misleading title
+thumbnail lied
+misleading thumbnail
+clickbait thumbnail
+the thumbnail is
+
+# --- wasted time / regret ---
+waste of time
+wasted my time
+waste of my time
+want my time back
+give me my time back
+came for nothing
+click for nothing
+why did i watch
+
+# --- hype / disappointment ---
+overhyped
+over hyped
+all hype
+hyped for nothing
+disappointed
+disappointing
+let down
+letdown
+
+# --- filler / padding complaints ---
+get to the point
+skip to
+just filler
+so much filler
+dragged on
+padded

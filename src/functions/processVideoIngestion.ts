@@ -1,7 +1,9 @@
 import { app, InvocationContext } from "@azure/functions";
+import { env } from "../config/env";
+import { updateChannelClickbait } from "../services/channelService";
 import { enrichVideo, type EnrichmentResult } from "../services/enrichmentService";
 import { fetchTranscript, TranscriptUnavailableError } from "../services/transcriptService";
-import { getTopComments, getVideoDetails, type RawComment, type VideoDetails } from "../services/videoService";
+import { getRecentComments, getVideoDetails, type RawComment, type VideoDetails } from "../services/videoService";
 import { videoInsightsRepository } from "../db/repositories";
 import {
   videoIngestionMessageSchema,
@@ -19,6 +21,7 @@ function toCommentRecords(raw: RawComment[]): CommentRecord[] {
     author: c.author,
     text: c.text,
     sentiment: "Neutral",
+    opinions: [],
     timestamp: c.timestamp,
   }));
 }
@@ -34,13 +37,31 @@ export async function processVideoIngestion(
   const batch = Array.isArray(messages) ? messages : [messages];
   context.log(`Extraction worker received ${batch.length} message(s)`);
 
+  const channelIds = new Set<string>();
   for (const raw of batch) {
     const parsed = videoIngestionMessageSchema.safeParse(raw);
     if (!parsed.success) {
       context.warn("Skipping malformed ingestion message", raw);
       continue;
     }
+    channelIds.add(parsed.data.channelId);
     await processMessage(parsed.data, context);
+  }
+
+  // Refresh each touched channel's clickbait propensity once per batch.
+  for (const channelId of channelIds) {
+    try {
+      const rollup = await updateChannelClickbait(channelId, context);
+      if (rollup) {
+        context.log(
+          `Channel ${channelId} propensity=${rollup.propensity_percentage}% ` +
+            `(${rollup.likelihood}), flagged=${Math.round(rollup.flagged_pct * 100)}% of ` +
+            `${rollup.video_count} videos, trend=${rollup.trend}`
+        );
+      }
+    } catch (err) {
+      context.warn(`Channel rollup update failed for ${channelId}`, err);
+    }
   }
 }
 
@@ -60,6 +81,14 @@ async function processMessage(
   // Hub can re-deliver. A missing video (deleted/private) is skipped cleanly.
   const details = await fetchMetadataOrThrow(videoId, context);
   if (!details) return;
+
+  // Shorts are skipped entirely — they don't have the promise/payoff structure
+  // the clickbait model analyses. Threshold is configurable via MIN_VIDEO_SECONDS_THRESHOLD.
+  const minSeconds = env().MIN_VIDEO_SECONDS_THRESHOLD;
+  if (details.durationSeconds > 0 && details.durationSeconds < minSeconds) {
+    context.log(`Skipping Short ${videoId} (${details.durationSeconds}s < ${minSeconds}s minimum)`);
+    return;
+  }
 
   const { comments, transcript, transcriptStatus } = await extractContent(videoId, context);
 
@@ -110,7 +139,7 @@ async function extractContent(
   let comments: RawComment[] = [];
   let commentsFailed = false;
   try {
-    comments = await getTopComments(videoId, 100);
+    comments = await getRecentComments(videoId, 200);
   } catch (err) {
     commentsFailed = true;
     context.warn(`Comment fetch failed for ${videoId} (continuing)`, err);
@@ -151,8 +180,10 @@ function buildDocument(
     metadata: {
       title: details.title,
       description: details.description,
+      channelTitle: details.channelTitle,
       thumbnailUrl: details.thumbnailUrl,
       videoUrl: details.videoUrl,
+      duration: details.duration,
       transcript_status: transcriptStatus,
       transcript: transcript.length ? transcript : existing?.metadata.transcript ?? [],
     },
@@ -163,6 +194,8 @@ function buildDocument(
       {
         timestamp: new Date().toISOString(),
         views: details.viewCount,
+        likes: details.likeCount,
+        comments: details.commentCount,
         aggregate_sentiment: enrichment.insights.comment_sentiment.average_scores,
       },
     ],
@@ -170,13 +203,15 @@ function buildDocument(
 }
 
 function logResult(context: InvocationContext, videoId: string, doc: VideoInsights): void {
-  const ins = doc.insights;
+  const cb = doc.insights.clickbait;
+  const mismatch = cb.mismatch.available ? `${cb.mismatch.score} (${cb.mismatch.source})` : "n/a";
   context.log(
     `Persisted ${videoId}: ${doc.comments.length} comments, ` +
       `transcript=${doc.metadata.transcript_status} (${doc.metadata.transcript.length} segments), ` +
-      `clickbait=${ins.clickbait.verdict} (weighted=${ins.clickbait.weighted_score}, ${ins.clickbait.llm_source}), ` +
-      `transcript_sentiment=${ins.transcript_sentiment.label}, ` +
-      `comments_overall=${ins.comment_sentiment.overall}`
+      `clickbait=${cb.clickbait_percentage}% (${cb.likelihood}) ` +
+      `[pkg=${cb.packaging.score}/${cb.packaging.llm_source}, mismatch=${mismatch}, betrayal=${cb.betrayal.score}], ` +
+      `transcript_sentiment=${doc.insights.transcript_sentiment.label}, ` +
+      `comments_overall=${doc.insights.comment_sentiment.overall}`
   );
 }
 

@@ -12,6 +12,7 @@ const envSchema = z.object({
   PUBSUBHUBBUB_HUB_URL: z.string().default("https://pubsubhubbub.appspot.com/subscribe"),
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
   PYTHON_BIN: z.string().default("python"),
+  MIN_VIDEO_SECONDS_THRESHOLD: z.coerce.number().default(60), // videos shorter than this are treated as Shorts and skipped
 
   // Optional: features degrade or are environment-specific.
   PUBSUBHUBBUB_CALLBACK_URL: z.string().optional(),
@@ -23,6 +24,7 @@ const envSchema = z.object({
   LANGUAGE_ENDPOINT: z.string().optional(),
   LANGUAGE_KEY: z.string().optional(),
   SCRIPTS_DIR: z.string().optional(),
+  LEXICON_DIR: z.string().optional(), // dir holding the clickbait/betrayal/stopword .txt files
 });
 
 export type Env = z.infer<typeof envSchema>;

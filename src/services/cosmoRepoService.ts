@@ -7,6 +7,9 @@ export interface Repository<T> {
   read(id: string, partitionKey: string, logger?: Logger): Promise<T | undefined>;
   upsert(doc: T): Promise<void>;
   query(query: string | SqlQuerySpec, logger?: Logger): Promise<T[]>;
+  // Projection/aggregate query: returns raw rows WITHOUT schema validation, because
+  // a SELECT projection is not a full T. Use for lightweight rollups, not row reads.
+  queryProjection<R = unknown>(query: string | SqlQuerySpec): Promise<R[]>;
 }
 
 /**
@@ -52,6 +55,12 @@ export function createRepository<S extends z.ZodTypeAny>(
       return resources
         .map((r) => validate(r, logger))
         .filter((r): r is T => r !== undefined);
+    },
+
+    async queryProjection<R>(query: string | SqlQuerySpec): Promise<R[]> {
+      const container = await getContainer(containerId);
+      const { resources } = await container.items.query(query).fetchAll();
+      return resources as R[];
     },
   };
 }

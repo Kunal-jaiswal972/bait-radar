@@ -1,5 +1,5 @@
 import { getLanguageClient } from "../clients/languageClient";
-import type { Sentiment, SentimentScores } from "../types";
+import type { Opinion, Sentiment, SentimentScores } from "../types";
 
 const MAX_DOCS_PER_REQUEST = 10; // Azure AI Language sentiment batch limit
 const MAX_DOC_CHARS = 5000; // under the 5120 service limit
@@ -7,11 +7,13 @@ const MAX_DOC_CHARS = 5000; // under the 5120 service limit
 export interface SentimentResult {
   sentiment: Sentiment;
   confidence: SentimentScores;
+  opinions: Opinion[]; // aspect-based opinions (from opinion mining)
 }
 
 const NEUTRAL_RESULT: SentimentResult = {
   sentiment: "Neutral",
   confidence: { positive: 0, neutral: 1, negative: 0 },
+  opinions: [],
 };
 
 function toSentiment(label: string | undefined): Sentiment {
@@ -44,7 +46,8 @@ export async function analyzeSentiments(texts: string[]): Promise<SentimentResul
     const analysis = await getLanguageClient().analyze(
       "SentimentAnalysis",
       group.map((d) => d.text),
-      "en"
+      "en",
+      { includeOpinionMining: true }
     );
     analysis.forEach((res, i) => {
       if (!res.error) {
@@ -55,12 +58,24 @@ export async function analyzeSentiments(texts: string[]): Promise<SentimentResul
             neutral: res.confidenceScores.neutral,
             negative: res.confidenceScores.negative,
           },
+          opinions: extractOpinions(res),
         };
       }
     });
   }
 
   return results;
+}
+
+// Flattens per-sentence opinion-mining targets into a compact { target, sentiment } list.
+function extractOpinions(res: { sentences?: ReadonlyArray<{ opinions?: ReadonlyArray<{ target: { text: string; sentiment: string } }> }> }): Opinion[] {
+  const opinions: Opinion[] = [];
+  for (const sentence of res.sentences ?? []) {
+    for (const op of sentence.opinions ?? []) {
+      opinions.push({ target: op.target.text, sentiment: toSentiment(op.target.sentiment) });
+    }
+  }
+  return opinions;
 }
 
 /** Sentiment of a single string (e.g. the transcript hook). */
@@ -76,5 +91,6 @@ export async function analyzeSingleSentiment(text: string): Promise<SentimentRes
       neutral: res.confidenceScores.neutral,
       negative: res.confidenceScores.negative,
     },
+    opinions: [],
   };
 }

@@ -1,0 +1,197 @@
+# Clickbait / sensational / power words & phrases used by the packaging heuristic.
+# One entry per line. Lines starting with # are comments; blank lines ignored.
+# Single words match on token boundaries; multi-word entries match as substrings.
+# This list is meant to grow — drop in larger industrial lists here.
+
+# --- absolutes / superlatives ---
+never
+always
+ever
+everyone
+everybody
+everything
+nobody
+nothing
+none
+anyone
+anything
+no one
+best
+worst
+greatest
+ultimate
+perfect
+only
+must
+forever
+literally
+completely
+totally
+absolutely
+entirely
+guaranteed
+definitely
+undeniable
+unbelievable
+number one
+
+# --- shock / sensational ---
+shocking
+shocked
+shock
+insane
+incredible
+jaw-dropping
+jaw dropping
+mind-blowing
+mind blowing
+mindblowing
+epic
+crazy
+wild
+outrageous
+scandalous
+explosive
+bombshell
+stunning
+astonishing
+staggering
+terrifying
+horrifying
+disturbing
+creepy
+scary
+dangerous
+deadly
+fatal
+brutal
+savage
+ruthless
+vicious
+gone wrong
+gone too far
+caught on camera
+caught red-handed
+exposed
+busted
+destroyed
+demolished
+obliterated
+annihilated
+humiliated
+owned
+wrecked
+slammed
+roasted
+
+# --- curiosity gap ---
+you won't believe
+won't believe
+will not believe
+what happened next
+this is why
+here's why
+the reason why
+the truth about
+the real reason
+what they don't want you to know
+they don't want you to know
+secret
+secrets
+hidden
+revealed
+reveal
+finally
+the truth
+mystery
+leaked
+before it's deleted
+watch before
+no one knows
+nobody knows
+what nobody tells you
+the one thing
+this one trick
+doctors hate
+you need to see
+you have to see
+must see
+must watch
+wait for it
+wait until
+until the end
+till the end
+at the end
+
+# --- emotional / power ---
+amazing
+awesome
+heartbreaking
+heartwarming
+emotional
+devastating
+tragic
+miracle
+miraculous
+life-changing
+life changing
+transform
+transformation
+instantly
+instant
+immediately
+overnight
+in seconds
+in minutes
+hack
+hacks
+trick
+tricks
+cheat
+genius
+foolproof
+effortless
+
+# --- urgency / scarcity ---
+now
+today
+hurry
+last chance
+before it's too late
+limited
+exclusive
+breaking
+urgent
+alert
+warning
+stop
+right now
+
+# --- hyperbole / quantifiers ---
+million
+billion
+thousand
+100%
+guaranteed
+free
+rich
+broke
+
+# --- challenge / extreme framing ---
+24 hours
+100 days
+last to leave
+survive
+survived
+surviving
+world record
+fastest
+biggest
+smallest
+largest
+strongest
+most expensive
+cheapest
+richest
+challenge
+vs

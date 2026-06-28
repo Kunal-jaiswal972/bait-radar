@@ -5,7 +5,7 @@ export const videoIngestionMessageSchema = z.object({
   videoId: z.string().min(1),
   channelId: z.string().min(1),
   publishedAt: z.string().optional(),
-  source: z.enum(["webhook", "manual_refresh"]),
+  source: z.enum(["webhook", "manual_refresh", "backfill"]),
 });
 
 export type VideoIngestionMessage = z.infer<typeof videoIngestionMessageSchema>;

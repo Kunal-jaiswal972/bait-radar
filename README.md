@@ -98,15 +98,17 @@ Two ideas drive the design:
 3. **New upload** — when the channel publishes, the hub `POST`s an Atom feed to the
    webhook. We parse out `{ videoId, channelId }`, publish a message to
    `video-ingestion-hub` (partitioned by `channelId`), and return `202`.
-4. **Extraction** — the Event Hub trigger (`processVideoIngestion`) fetches:
-   - video metadata + statistics (YouTube Data API `videos`),
-   - top ~100 comments (`commentThreads`, relevance order),
+4. **Extraction** — the Event Hub trigger (`processVideoIngestion`, batched up to 20)
+   fetches video metadata + statistics. **Shorts** (duration < `MIN_VIDEO_SECONDS_THRESHOLD`) are
+   skipped here and never persisted. For everything else it also fetches:
+   - up to 200 newest comments (`commentThreads`, time order, paginated),
    - the transcript (Python scraper via `spawn`).
-5. **AI enrichment** — thumbnail Vision (OCR + tags + objects) → clickbait scoring
-   (heuristic + Gemini) → transcript-hook sentiment → per-comment sentiment.
+5. **AI enrichment** — three clickbait pillars (packaging Vision+Gemini, promise–payoff
+   mismatch, comment betrayal) → `clickbait_percentage`; plus transcript-hook sentiment
+   and per-comment sentiment + opinion mining.
 6. **Persist** — the assembled `VideoInsights` document is upserted to Cosmos. Re-runs
    merge with the existing doc so nothing is lost, and a new `timeline` snapshot is
-   appended.
+   appended. Then each touched channel's clickbait propensity is recomputed.
 7. **Track over time** *(Phase 5)* — a daily timer re-pings view count + new comments
    and appends to `timeline` / `comments`.
 
@@ -130,31 +132,39 @@ src/
 │  └─ index.ts            #   barrel
 ├─ domain/                # Pure logic, no I/O
 │  ├─ atom.ts             #   Atom feed parsing + topic URLs
-│  └─ clickbait.ts        #   heuristic score, label thresholds, score merge
+│  ├─ lexicons.ts         #   loads the word/phrase lists from src/data/*.txt (cached)
+│  └─ clickbait.ts        #   heuristic, packaging merge, betrayal, aggregate, channel rollup
+├─ data/                  # Editable lexicons (loaded at startup; grow freely)
+│  ├─ clickbait-words.txt #   sensational / power / curiosity words for the heuristic
+│  ├─ betrayal-phrases.txt#   "clickbait / lied / nothing happened …" for the betrayal pillar
+│  └─ stopwords.txt       #   English stopwords for the lexical mismatch fallback
 ├─ clients/               # Thin singletons wrapping each external SDK/API
 │  ├─ cosmosClient.ts     #   Cosmos client + getContainer()
 │  ├─ eventHubClient.ts   #   Event Hub producer
 │  ├─ youtubeClient.ts    #   YouTube Data API URL builder
 │  ├─ visionClient.ts     #   Azure AI Vision
 │  ├─ languageClient.ts   #   Azure AI Language
-│  └─ geminiClient.ts     #   Gemini model factory
+│  └─ geminiClient.ts     #   Gemini model factory (thin)
 ├─ db/
 │  └─ repositories.ts     # Schema map: binds each container to its Zod schema
 ├─ services/              # Business logic / orchestration
-│  ├─ cosmoRepoService.ts #   generic validated repository factory
-│  ├─ channelService.ts   #   resolve + register channel, manage subscription
+│  ├─ cosmoRepoService.ts #   generic validated repository factory (+ queryProjection)
+│  ├─ channelService.ts   #   register channel, subscription, channel clickbait rollup
 │  ├─ ingestionService.ts #   publish to Event Hub
-│  ├─ videoService.ts     #   YouTube metadata + comments
+│  ├─ videoService.ts     #   YouTube metadata + comments + recent uploads
 │  ├─ transcriptService.ts#   Python transcript scraper bridge
 │  ├─ visionService.ts    #   thumbnail OCR/tags/objects
-│  ├─ clickbaitService.ts #   heuristic + Gemini clickbait scoring
-│  ├─ sentimentService.ts #   Azure AI Language sentiment
-│  └─ enrichmentService.ts#   orchestrates all AI steps → insights block
+│  ├─ geminiService.ts    #   generateScore() + image part (timeout/parse around Gemini)
+│  ├─ clickbaitService.ts #   packaging pillar (heuristic + multimodal Gemini)
+│  ├─ mismatchService.ts  #   promise–payoff pillar (Azure key phrases → Gemini)
+│  ├─ sentimentService.ts #   Azure AI Language sentiment + opinion mining
+│  └─ enrichmentService.ts#   orchestrates all pillars → insights block
 ├─ functions/             # Azure Functions entry points (triggers only)
 │  ├─ registerChannel.ts  #   POST /api/channels
 │  ├─ youtubeWebhook.ts   #   GET/POST /api/webhook/youtube
-│  └─ processVideoIngestion.ts # EventHubTrigger on video-ingestion-hub
+│  └─ processVideoIngestion.ts # EventHubTrigger (skips Shorts; updates channel rollup)
 └─ scripts/
+   ├─ backfill.ts         # seed recent uploads of tracked channels through the hub
    ├─ fetch_transcript.py # youtube-transcript-api 1.x scraper (JSON to stdout)
    └─ requirements.txt
 ```
@@ -187,6 +197,15 @@ src/
   "url": "https://youtube.com/@handle",
   "topicUrl": "https://www.youtube.com/xml/feeds/videos.xml?channel_id=UCxxxx",
   "hubSubscriptionStatus": "pending | verified | failed",
+  "clickbait": {               // rollup over the channel's analyzed videos (see below)
+    "propensity_percentage": 29,
+    "likelihood": "Less Likely",
+    "flagged_pct": 0.0,        // fraction of videos scoring >= 60%
+    "video_count": 12,
+    "avg_betrayal_rate": 0.03,
+    "trend": "rising | falling | stable",
+    "updated_at": "ISO"
+  },
   "createdAt": "ISO",
   "updatedAt": "ISO"
 }
@@ -200,19 +219,32 @@ src/
   "channelId": "UCxxxx",       // partition key
   "publishedAt": "ISO",
   "metadata": {
-    "title": "...", "description": "...",
+    "title": "...", "description": "...", "channelTitle": "...",
     "thumbnailUrl": "...", "videoUrl": "...",
+    "duration": "PT10M30S",
     "transcript_status": "success | failed_retryable | manual_override",
     "transcript": [{ "text": "...", "start": 0.0, "duration": 1.2 }]
   },
   "insights": {
     "thumbnail":  { "ocr_text": ["..."], "tags": ["..."], "objects": ["..."] },
-    "clickbait":  {
-      "heuristic_score": 0.71, "heuristic_label": "Likely Clickbait",
-      "llm_score": 0.40,       "llm_label": "Mildly Clickbait",
-      "llm_source": "gemini-2.5-flash",
-      "weighted_score": 0.49,  "max_score": 0.71, "max_label": "Likely Clickbait",
-      "verdict": "Mildly Clickbait", "is_clickbait": false
+    "clickbait":  {                          // v2 multi-pillar model
+      "packaging": {                         // pillar 1 — title/desc/thumbnail bait
+        "heuristic_score": 0.73, "llm_score": 0.40,
+        "llm_source": "gemini-2.5-flash",    // or "heuristic_fallback"
+        "score": 0.50                        // 0.3*heuristic + 0.7*llm
+      },
+      "mismatch": {                          // pillar 2 — promise vs payoff
+        "available": true,                   // false when no transcript
+        "score": 0.0,                        // 0..1, higher = bigger gap
+        "source": "gemini"                   // | "lexical_fallback" | "unavailable"
+      },
+      "betrayal": {                          // pillar 3 — comments crying clickbait
+        "score": 0.0, "betrayal_rate": 0.0,
+        "flagged_count": 0, "total_comments": 200
+      },
+      "clickbait_percentage": 29,            // 0..100 weighted blend
+      "likelihood": "Less Likely",           // 5-level label
+      "weights": { "packaging": 0.4, "mismatch": 0.4, "betrayal": 0.2 }
     },
     "transcript_sentiment": { "label": "Positive", "window_seconds": 15 },
     "comment_sentiment": {
@@ -227,10 +259,11 @@ src/
     { "id": "...", "author": "...", "text": "...",
       "sentiment": "Positive",
       "confidence": { "positive": 0.9, "neutral": 0.08, "negative": 0.02 },
+      "opinions": [{ "target": "thumbnail", "sentiment": "Negative" }],  // opinion mining
       "timestamp": "ISO" }
   ],
   "timeline": [
-    { "timestamp": "ISO", "views": 12345,
+    { "timestamp": "ISO", "views": 12345, "likes": 890, "comments": 120,
       "aggregate_sentiment": { "positive": 0.58, "negative": 0.12, "neutral": 0.30 } }
   ]
 }
@@ -248,29 +281,57 @@ Azure AI Vision Image Analysis 4.0. Requests `Read` (OCR), `Tags`, and `Objects`
 Tags/Objects are region-limited, so on failure it **retries with `Read` only** — OCR
 text is the signal the rest of the pipeline depends on.
 
-### Clickbait scoring (`clickbaitService.ts` + `domain/clickbait.ts`)
-Two scorers see the **same evidence** (`ClickbaitSignals`: title, description, tags,
-objects, thumbnail OCR overlays):
+### Clickbait model — v2 (3 pillars → percentage)
+Clickbait = a gap between the **promise** (title + thumbnail) and the **payoff**
+(content + audience reaction). The score is a weighted blend of three pillars, each
+0–1, producing a `clickbait_percentage` (0–100) and a 5-level `likelihood`.
 
-- **Heuristic (rule-based, 0–1):** overlay presence, ALL-CAPS ratio, count of
-  absolute/sensational words, and punctuation intensity — each capped.
-- **LLM (Gemini, 0–1):** a strict JSON system prompt, `temperature: 0`,
-  `responseMimeType: application/json`, Zod-validated reply.
+**Pillar 1 — Packaging** (`clickbaitService.ts` + `domain/clickbait.ts`), weight `0.4`.
+Heuristic + Gemini on the same evidence (title, description, tags, objects, OCR overlays):
+- *Heuristic (rule-based):* overlay presence, ALL-CAPS ratio, hits against the
+  **sensational-word list** (`data/clickbait-words.txt`), punctuation intensity — each
+  capped. Single words match on token boundaries; phrases match as substrings.
+- *Gemini (multimodal):* the thumbnail **image** is sent alongside the text; strict
+  JSON, `temperature: 0`.
+- Merged: `score = 0.3·heuristic + 0.7·llm`.
 
-They merge into:
-- `weighted_score = 0.3·heuristic + 0.7·llm` → drives `verdict` and `is_clickbait`
-  (threshold `0.5`),
-- `max_score = max(heuristic, llm)`,
-- human labels: *Not / Mildly / Likely / Highly Clickbait*.
+**Pillar 2 — Promise–payoff mismatch** (`mismatchService.ts`), weight `0.4`.
+The transcript is condensed two ways — Azure **Extractive Summarization** (salient
+sentences across the whole video) **and** **Key Phrase Extraction** (topics from
+windows sampled end-to-end) — plus a head excerpt, then a small **Gemini judge** rates
+whether the content delivers the title/thumbnail promise (`0` = delivers, `1` = pure
+bait). `available: false` when there's no transcript, and its weight is redistributed.
 
-If Gemini fails (no key, timeout 15s, quota, network), `llm_score` falls back to the
-heuristic score and `llm_source` becomes `"heuristic_fallback"` — scoring never blocks.
+**Pillar 3 — Audience betrayal** (`domain/clickbait.ts`), weight `0.2`.
+Fraction of comments signalling betrayal — the **betrayal-phrase list**
+(`data/betrayal-phrases.txt`: `clickbait`, `lied`, `where is the`, …) plus **Azure
+Opinion Mining** (a negative aspect-opinion whose target is packaging:
+`thumbnail`/`title`/`intro`). Scaled so a 20% betrayal rate saturates the pillar.
+
+> The word/phrase lists are **data files** under `src/data/` loaded at startup
+> (`domain/lexicons.ts`) — grow them to industrial size without code changes; a missing
+> file falls back to a small built-in default. Override the directory with `LEXICON_DIR`.
+
+The blend → `clickbait_percentage` → `likelihood`: `<20` Least · `20–40` Less ·
+`40–60` Normal · `60–80` Highly · `80–100` Most Likely.
+
+**Channel rollup** (`channelService.updateChannelClickbait`): a **recency-weighted
+mean** of the channel's video percentages (newer uploads weigh more), plus `% flagged`
+(videos ≥ 60%), `avg_betrayal_rate`, and a `trend` (newer half vs older half, needs
+≥ 4 videos). Recomputed once per ingestion batch via a projected query and stored on
+the `Channels` doc.
+
+> Transcript-sentiment and comment-sentiment are computed and stored for the dashboard
+> but are **not** part of the clickbait score — they measure mood, not deception.
 
 ### Sentiment (`sentimentService.ts`)
 Azure AI Language. The **transcript hook** (first 15s) gets a single-doc call; the
 **comments** are batched (10 docs/request, ≤5000 chars each) with results aligned back
 to input order. Each comment keeps its `confidence` scores; `comment_sentiment`
 aggregates counts, distribution, and the mean confidence (overall = argmax of means).
+The comment call also enables **Opinion Mining** (`includeOpinionMining`) — same call,
+no extra cost — surfacing aspect-level opinions (`target` + sentiment) per comment.
+Negative opinions about packaging targets (thumbnail/title/intro) feed the betrayal pillar.
 
 ### Gemini call budget
 **One Gemini call per video** (clickbait scoring only). Vision and Language are the
@@ -288,13 +349,37 @@ other two paid services; transcripts are free (scraped).
 | Comment fetch transient error | logged; `transcript_status = failed_retryable`, run continues |
 | No transcript available | `TranscriptUnavailableError` (exit 3) → status stays, run continues |
 | Transcript transient/timeout | `transcript_status = failed_retryable`, run continues |
-| Vision down | empty OCR/tags/objects; clickbait still scores on title/description |
-| Gemini down | `llm_source = heuristic_fallback`, weighted score = heuristic |
-| Language down | comments keep placeholder `Neutral` sentiment |
+| Video is a Short (< `MIN_VIDEO_SECONDS_THRESHOLD`) | skipped entirely — not enriched, not persisted |
+| Vision down | empty OCR/tags/objects; packaging still scores on title/description |
+| Gemini down (packaging) | `packaging.llm_source = heuristic_fallback`; packaging = heuristic only |
+| Gemini down (mismatch) | `mismatch.source = lexical_fallback` (title-word presence in transcript) |
+| Language down | comments keep `Neutral`; opinion-mining betrayal signal lost (lexicon still works) |
 | Cosmos doc fails schema (drift) | logged with field paths, treated as "not found"; doc rebuilt |
 
 Re-running extraction for a video **merges** with the existing document (preserves prior
 transcript/comments if the new run came up empty) rather than overwriting.
+
+### Fallbacks & their weaknesses
+
+Every external dependency has a fallback so the pipeline never blocks — but each
+degraded path trades away accuracy. Know what you lose:
+
+| Fallback | When it fires | What you lose / weakness |
+|---|---|---|
+| Vision `Read`-only (drop Tags/Objects) | region error on the full feature set | no visual concept tags/objects for the packaging scorers — they lean on OCR + title |
+| Vision fully empty | Vision down entirely | heuristic loses its overlay signal; Gemini still sees the raw image |
+| Packaging → heuristic | Gemini 503/timeout/no key | rule-based only: misses nuanced bait, can't read the image, can't tell *sensational-but-honest* from *deceptive* |
+| Thumbnail image omitted | image fetch 404 (e.g. maxres fallback) | Gemini judges packaging from text only — no shocked faces / arrows / red-circle cues |
+| Mismatch → lexical overlap | Gemini down for the judge | pure word-presence: blind to synonyms/paraphrase; a title word appearing once ≠ promise delivered; noisy on terse titles |
+| Mismatch → unavailable | no transcript at all | the *defining* clickbait signal is missing; index rests on packaging (promise only) + betrayal (lagging) |
+| Summary dropped (key phrases only) | Extractive Summarization fails / region-gated | judge loses narrative sentences, keeps topic key phrases — coarser sense of *what actually happens* |
+| Key phrases → excerpt only | Azure key-phrase call fails | Gemini sees just the first ~1500 chars → can't judge whether a *buried* payoff is delivered |
+| Cross-video sampling (10 windows) | transcript > ~50k chars | gaps between sampled windows — very long videos aren't read in full, only spanned |
+| Lexicon → built-in default | a `data/*.txt` file can't be read | falls back to a tiny hardcoded list → far fewer sensational/betrayal terms detected |
+| Comment sentiment → `Neutral` | Language down | `comment_sentiment` flatlines and the opinion-mining half of betrayal is lost (lexicon half survives) |
+| Comments → `[]` | comments disabled | betrayal pillar = 0 (no signal, not "innocent"); index leans on packaging + mismatch |
+| Channel `trend` = `stable` | < 4 analyzed videos | trend can't be computed; propensity from few videos is noisy |
+| Schema-drift doc dropped | Cosmos doc fails validation | treated as not-found and rebuilt — prior fields absent from the new run are lost |
 
 ---
 
@@ -348,6 +433,22 @@ stdout and signals outcome via exit code: `0` success, `2` bad usage, `3` perman
 unavailable, `1` transient/retryable. `PYTHON_BIN` points the worker at the venv
 interpreter.
 
+### Seeding data (backfill)
+Videos only enter the system via the **webhook** (new uploads) — there is no
+"add a video" endpoint; a channel must be registered first. To get historical data
+for testing, the backfill script pushes the N most recent uploads of every tracked
+channel through the same ingestion hub the webhook uses:
+
+```bash
+bun run src/scripts/backfill.ts            # 3 recent uploads per channel (default)
+bun run src/scripts/backfill.ts 5          # 5 each
+bun run src/scripts/backfill.ts 3 UCxxxx   # only this channel id
+```
+
+It reads `local.settings.json` directly (the Functions host need not be running) and
+publishes `source: "backfill"` ingestion messages, which the Event Hub trigger
+processes exactly like a webhook upload (so Shorts among them are still skipped).
+
 ---
 
 ## Environment variables
@@ -370,6 +471,8 @@ Validated by `config/env.ts` (Zod) on first access — missing **required** vars
 | `PUBSUBHUBBUB_HUB_URL` | `https://pubsubhubbub.appspot.com/subscribe` |
 | `GEMINI_MODEL` | `gemini-2.5-flash` |
 | `PYTHON_BIN` | `python` |
+| `MIN_VIDEO_SECONDS_THRESHOLD` | `60` — videos shorter than this are treated as Shorts and skipped entirely |
+| `LEXICON_DIR` | unset → `src/data` — directory holding the clickbait/betrayal/stopword `.txt` files |
 
 **Optional (features degrade if absent)**
 `PUBSUBHUBBUB_CALLBACK_URL`, `PUBSUBHUBBUB_VERIFY_TOKEN`, `PUBSUBHUBBUB_LEASE_SECONDS`,
@@ -417,7 +520,20 @@ See [`plan.md`](plan.md) for the full phased plan.
 | 2 | Data extraction worker (metadata/comments/transcript) | ✅ Done |
 | 3 | AI processing (Vision + Gemini + Language) | ✅ Done |
 | 4 | Persistence to Cosmos (strict schema) | ✅ Done |
+| — | Backfill script + extended data (likes/comments/duration) + Shorts filter | ✅ Done |
+| 8 | Clickbait model v2 (packaging + mismatch + betrayal → percentage; channel rollup; opinion mining) | ✅ Done |
 | 5 | Time-series tracking (daily timer) | ⏭ Next |
 | 6 | Dashboard write-back endpoints (refresh / transcript override) | ⬜ Planned |
 | 7 | React dashboard frontend | ⬜ Planned |
-```
+
+---
+
+## Further reading
+
+Clickbait detection research and YouTube ranking signals that inform the v2 model:
+
+- [ThumbnailTruth — Multi-Modal LLM detection of misleading YouTube thumbnails (arXiv 2025)](https://arxiv.org/html/2509.04714v1)
+- [BaitRadar — Multi-model clickbait detection using title, thumbnail, transcript, comments, tags, stats (arXiv)](https://arxiv.org/html/2505.17448v1)
+- [Multimodal Clickbait Detection by De-confounding Biases via Causal Inference (arXiv)](https://arxiv.org/html/2410.07673v1)
+- [YouTube Ranking Factors 2026 — "Quality CTR" & retention](https://rankxdigital.com/blog/youtube-ranking-factors/)
+- [YouTube Satisfaction Signals — dismissive comments as a suppression signal](https://marketingagent.blog/2025/11/04/youtubes-recommendation-algorithm-satisfaction-signals-what-you-can-control/)
