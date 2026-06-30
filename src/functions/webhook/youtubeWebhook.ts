@@ -1,8 +1,8 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { env } from "../config/env";
-import { parseAtomUpload } from "../domain/atom";
-import { markSubscriptionVerified } from "../services/channelService";
-import { publishVideoIngestion } from "../services/ingestionService";
+import { env } from "../../config/env";
+import { parseAtomUpload } from "../../domain/atom";
+import { markSubscriptionVerified } from "../../services/channelService";
+import { publishVideoIngestion } from "../../services/ingestionService";
 
 /**
  * /api/webhook/youtube

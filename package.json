@@ -2,7 +2,7 @@
   "name": "yt-data-analyzer",
   "version": "0.1.0",
   "description": "Serverless, event-driven YouTube analytics pipeline on Azure Functions (v4 Node.js model)",
-  "main": "dist/src/functions/*.js",
+  "main": "dist/src/functions/**/*.js",
   "scripts": {
     "build": "rimraf dist && tsc",
     "watch": "tsc -w",

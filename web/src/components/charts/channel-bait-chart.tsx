@@ -22,13 +22,11 @@ function barColor(v: number): string {
 
 // Compare clickbait propensity across all analyzed channels.
 export function ChannelBaitChart({ channels }: { channels: Channel[] }) {
-  const data = channels
-    .filter((c) => c.clickbait)
-    .map((c) => ({
-      name: c.title,
-      propensity: c.clickbait!.propensity_percentage,
-      fill: barColor(c.clickbait!.propensity_percentage),
-    }))
+  const data = channels.flatMap((c) =>
+    c.clickbait
+      ? [{ name: c.title, propensity: c.clickbait.propensity_percentage, fill: barColor(c.clickbait.propensity_percentage) }]
+      : []
+  )
 
   return (
     <ChartContainer config={config} className="aspect-auto h-[260px] w-full">

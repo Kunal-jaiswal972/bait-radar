@@ -1,6 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { z } from "zod";
-import { registerChannel } from "../services/channelService";
+import { registerChannel } from "../../services/channelService";
 
 const bodySchema = z.object({
   channel: z.string().optional(),

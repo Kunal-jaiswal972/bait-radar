@@ -1,10 +1,10 @@
 import { app, InvocationContext } from "@azure/functions";
-import { env } from "../config/env";
-import { updateChannelClickbait } from "../services/channelService";
-import { enrichVideo, type EnrichmentResult } from "../services/enrichmentService";
-import { fetchTranscript, TranscriptUnavailableError } from "../services/transcriptService";
-import { getRecentComments, getVideoDetails, type RawComment, type VideoDetails } from "../services/videoService";
-import { videoInsightsRepository } from "../db/repositories";
+import { env } from "../../config/env";
+import { updateChannelClickbait } from "../../services/channelService";
+import { enrichVideo, type EnrichmentResult } from "../../services/enrichmentService";
+import { fetchTranscript, TranscriptUnavailableError } from "../../services/transcriptService";
+import { getRecentComments, getVideoDetails, type RawComment, type VideoDetails } from "../../services/videoService";
+import { videoInsightsRepository } from "../../db/repositories";
 import {
   videoIngestionMessageSchema,
   type CommentRecord,
@@ -12,7 +12,7 @@ import {
   type TranscriptStatus,
   type VideoIngestionMessage,
   type VideoInsights,
-} from "../types";
+} from "../../types";
 
 // RawComment -> CommentRecord with placeholder sentiment (enrichment fills it).
 function toCommentRecords(raw: RawComment[]): CommentRecord[] {

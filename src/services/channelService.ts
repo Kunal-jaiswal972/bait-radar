@@ -118,6 +118,12 @@ interface VideoStatRow {
   publishedAt: string;
   pct: number;
   betrayal: number;
+  channelTitle: string;
+}
+
+/** First non-empty channel title across the projected video rows, if any. */
+function deriveChannelTitle(rows: VideoStatRow[]): string | undefined {
+  return rows.find((r) => r.channelTitle?.trim())?.channelTitle?.trim();
 }
 
 /**
@@ -133,7 +139,8 @@ export async function updateChannelClickbait(
     query:
       "SELECT c.publishedAt AS publishedAt, " +
       "c.insights.clickbait.clickbait_percentage AS pct, " +
-      "c.insights.clickbait.betrayal.betrayal_rate AS betrayal " +
+      "c.insights.clickbait.betrayal.betrayal_rate AS betrayal, " +
+      "c.metadata.channelTitle AS channelTitle " +
       "FROM c WHERE c.channelId = @c",
     parameters: [{ name: "@c", value: channelId }],
   });
@@ -151,6 +158,9 @@ export async function updateChannelClickbait(
   if (!channel) return undefined;
   const clickbait: ChannelClickbait = { ...rollup, updated_at: new Date().toISOString() };
   channel.clickbait = clickbait;
+  // Backfill the display title from the channel's videos (the registration flow
+  // doesn't know it; only the Data API responses on ingestion carry it).
+  if (!channel.title?.trim()) channel.title = deriveChannelTitle(rows);
   channel.updatedAt = new Date().toISOString();
   await channelRepository.upsert(channel);
   return clickbait;
