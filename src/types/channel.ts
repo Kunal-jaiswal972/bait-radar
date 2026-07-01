@@ -17,11 +17,21 @@ export const channelClickbaitSchema = z.object({
 export type ChannelClickbait = z.infer<typeof channelClickbaitSchema>;
 
 // Channels container document. Zod-sourced so it can be validated on Cosmos read.
+// The snippet/statistics fields are captured from the YouTube Data API at
+// registration time; all optional so a details-fetch failure never blocks save.
 export const channelSchema = z.object({
   id: z.string(), // == channelId (partition key)
   channelId: z.string(),
-  url: z.string().optional(),
+  url: z.string().optional(), // raw registration input, when it was a URL
   title: z.string().optional(),
+  description: z.string().optional(),
+  thumbnailUrl: z.string().optional(),
+  customUrl: z.string().optional(), // canonical "@handle"
+  subscriberCount: z.number().optional(),
+  videoCount: z.number().optional(),
+  viewCount: z.number().optional(),
+  country: z.string().optional(),
+  channelPublishedAt: z.string().optional(), // when the channel was created
   topicUrl: z.string(), // YouTube feed URL used as the PubSubHubbub topic
   hubSubscriptionStatus: hubSubscriptionStatusSchema,
   clickbait: channelClickbaitSchema.optional(), // populated once the channel has analyzed videos

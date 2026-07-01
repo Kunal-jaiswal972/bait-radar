@@ -60,10 +60,9 @@ export const clickbaitInsightsSchema = z.object({
 });
 export type ClickbaitInsights = z.infer<typeof clickbaitInsightsSchema>;
 
-/** Sentiment of the first N seconds of the transcript. */
+/** Overall sentiment of the video's transcript. */
 export const transcriptSentimentInsightsSchema = z.object({
   label: sentimentSchema,
-  window_seconds: z.number(),
 });
 export type TranscriptSentimentInsights = z.infer<typeof transcriptSentimentInsightsSchema>;
 

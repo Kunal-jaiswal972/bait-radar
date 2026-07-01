@@ -48,6 +48,66 @@ async function lookupChannelIdByHandle(handle: string): Promise<string> {
   return id;
 }
 
+export interface ChannelDetails {
+  title: string;
+  description: string;
+  thumbnailUrl: string;
+  customUrl?: string; // canonical "@handle"
+  subscriberCount: number;
+  videoCount: number;
+  viewCount: number;
+  country?: string;
+  publishedAt: string; // when the channel was created
+}
+
+/**
+ * Fetches a channel's snippet + statistics for display on the dashboard.
+ * Returns null if the channel is missing; throws on transient API errors so the
+ * caller can decide whether to proceed without details.
+ */
+export async function getChannelDetails(channelId: string): Promise<ChannelDetails | null> {
+  const url = buildYoutubeUrl("channels", { part: "snippet,statistics", id: channelId });
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`channels.list failed: ${res.status} ${await res.text()}`);
+  }
+  const data = (await res.json()) as {
+    items?: Array<{
+      snippet?: {
+        title?: string;
+        description?: string;
+        customUrl?: string;
+        publishedAt?: string;
+        country?: string;
+        thumbnails?: Record<string, { url?: string }>;
+      };
+      statistics?: { viewCount?: string; subscriberCount?: string; videoCount?: string };
+    }>;
+  };
+
+  const item = data.items?.[0];
+  if (!item) return null;
+
+  const snippet = item.snippet ?? {};
+  const stats = item.statistics ?? {};
+  const thumbnails = snippet.thumbnails ?? {};
+  const thumbnailUrl = thumbnails.high?.url ?? thumbnails.medium?.url ?? thumbnails.default?.url ?? "";
+
+  return {
+    title: snippet.title ?? "",
+    description: snippet.description ?? "",
+    thumbnailUrl,
+    customUrl: snippet.customUrl,
+    country: snippet.country,
+    publishedAt: snippet.publishedAt ?? "",
+    // subscriberCount is absent when the creator hides it.
+    viewCount: Number(stats.viewCount ?? 0),
+    subscriberCount: Number(stats.subscriberCount ?? 0),
+    videoCount: Number(stats.videoCount ?? 0),
+  };
+}
+
 // Fires an async subscribe request; the hub confirms via a GET challenge to the
 // callback (handled by the webhook function).
 async function sendSubscriptionRequest(channelId: string): Promise<void> {
@@ -92,12 +152,33 @@ export async function registerChannel(
   const now = new Date().toISOString();
 
   const existing = await channelRepository.read(channelId, channelId, logger);
+
+  // Capture the channel's snippet + statistics for the dashboard. Best-effort:
+  // a fetch failure must never block registration — we still save and subscribe.
+  let details: ChannelDetails | null = null;
+  try {
+    details = await getChannelDetails(channelId);
+  } catch (err) {
+    logger.warn("Channel details fetch failed (registering with id only)", err);
+  }
+
   const doc: Channel = {
     id: channelId,
     channelId,
-    url: input.startsWith("http") ? input : undefined,
+    url: input.startsWith("http") ? input : existing?.url,
+    title: details?.title ?? existing?.title,
+    description: details?.description ?? existing?.description,
+    thumbnailUrl: details?.thumbnailUrl ?? existing?.thumbnailUrl,
+    customUrl: details?.customUrl ?? existing?.customUrl,
+    subscriberCount: details?.subscriberCount ?? existing?.subscriberCount,
+    videoCount: details?.videoCount ?? existing?.videoCount,
+    viewCount: details?.viewCount ?? existing?.viewCount,
+    country: details?.country ?? existing?.country,
+    channelPublishedAt: details?.publishedAt ?? existing?.channelPublishedAt,
     topicUrl: topicUrlForChannel(channelId),
-    hubSubscriptionStatus: "pending",
+    // Preserve a prior verified status + computed rollup when re-registering.
+    hubSubscriptionStatus: existing?.hubSubscriptionStatus ?? "pending",
+    clickbait: existing?.clickbait,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };

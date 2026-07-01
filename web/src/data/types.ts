@@ -27,7 +27,12 @@ export interface ChannelClickbait {
 export interface Channel {
   channelId: string
   title: string
-  url?: string
+  handle?: string
+  description?: string
+  thumbnailUrl?: string
+  channelUrl: string
+  subscriberCount?: number
+  videoCount?: number
   hubSubscriptionStatus: SubStatus
   clickbait?: ChannelClickbait
   createdAt: string
@@ -41,7 +46,9 @@ export interface VideoCard {
   thumbnailUrl: string
   videoUrl: string
   publishedAt: string
+  duration: string
   views: number
+  likes: number
   clickbait_percentage: number
   likelihood: Likelihood
   comment_sentiment: Sentiment
@@ -64,11 +71,31 @@ export interface BetrayalDetail {
   total_comments: number
 }
 
+export interface ThumbnailSignals {
+  ocr_text: string[]
+  tags: string[]
+  objects: string[]
+}
+
 export interface SentimentDistribution {
   positive: number
   negative: number
   neutral: number
   mixed: number
+}
+
+// All per-video analysis, grouped so each datapoint appears exactly once.
+export interface VideoInsightsView {
+  pillars: PillarBreakdown
+  betrayal: BetrayalDetail
+  comment: {
+    overall: Sentiment
+    distribution: SentimentDistribution
+  }
+  transcript: {
+    sentiment: Sentiment
+  }
+  thumbnail: ThumbnailSignals
 }
 
 export interface TimelinePoint {
@@ -82,21 +109,19 @@ export interface CommentItem {
   author: string
   text: string
   sentiment: Sentiment
+  publishedAt: string
+}
+
+export interface TranscriptLine {
+  start: number
+  text: string
 }
 
 export interface VideoDetail extends VideoCard {
   description: string
-  duration: string
   transcript_status: TranscriptStatus
-  pillars: PillarBreakdown
-  betrayal_detail: BetrayalDetail
-  thumbnail: {
-    ocr_text: string[]
-    tags: string[]
-    objects: string[]
-  }
-  comment_sentiment_overall: Sentiment
-  comment_sentiment_distribution: SentimentDistribution
+  transcript: TranscriptLine[]
+  insights: VideoInsightsView
   timeline: TimelinePoint[]
   comments: CommentItem[]
 }

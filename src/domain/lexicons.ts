@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { env } from "../config/env";
 
 function loadList(file: string, fallback: string[]): string[] {
   try {
-    const dir = process.env.LEXICON_DIR ?? path.join(process.cwd(), "src", "data");
+    const dir = env().LEXICON_DIR ?? path.join(process.cwd(), "src", "data");
     const raw = readFileSync(path.join(dir, file), "utf-8");
     const items = raw
       .split(/\r?\n/)

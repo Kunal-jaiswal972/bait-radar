@@ -15,8 +15,6 @@ import type {
   VideoInsightsBlock,
 } from "../types";
 
-const HOOK_WINDOW_SECONDS = 15;
-
 export interface EnrichmentInput {
   title: string;
   description: string;
@@ -65,7 +63,7 @@ export async function enrichVideo(
       { title: input.title, thumbnailText: thumbnail.ocrLines, transcript: input.transcript },
       logger
     ),
-    scoreTranscriptHook(input.transcript, logger),
+    scoreTranscriptSentiment(input.transcript, logger),
     scoreCommentSentiment(input.comments, logger),
   ]);
 
@@ -75,7 +73,7 @@ export async function enrichVideo(
     insights: {
       thumbnail: { ocr_text: thumbnail.ocrLines, tags: thumbnail.tags, objects: thumbnail.objects },
       clickbait,
-      transcript_sentiment: { label: transcriptLabel, window_seconds: HOOK_WINDOW_SECONDS },
+      transcript_sentiment: { label: transcriptLabel },
       comment_sentiment: summarizeComments(scoredComments),
     },
     comments: scoredComments,
@@ -124,20 +122,23 @@ async function analyzeThumbnailEvidence(
   }
 }
 
-/** Sentiment of the transcript's first HOOK_WINDOW_SECONDS; Neutral on failure. */
-async function scoreTranscriptHook(
+/**
+ * Overall sentiment of the whole transcript; Neutral on failure. The text is
+ * capped to the Azure Language per-document limit (~5000 chars) by
+ * analyzeSingleSentiment.
+ */
+async function scoreTranscriptSentiment(
   transcript: TranscriptSegment[],
   logger: Logger
 ): Promise<Sentiment> {
-  const hook = transcript
-    .filter((s) => s.start < HOOK_WINDOW_SECONDS)
+  const full = transcript
     .map((s) => s.text)
     .join(" ")
     .trim();
-  if (!hook) return "Neutral";
+  if (!full) return "Neutral";
 
   try {
-    return (await analyzeSingleSentiment(hook)).sentiment;
+    return (await analyzeSingleSentiment(full)).sentiment;
   } catch (err) {
     logger.warn("Transcript sentiment failed (degrading to Neutral)", err);
     return "Neutral";

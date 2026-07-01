@@ -1,4 +1,8 @@
 import { Component, type ErrorInfo, type ReactNode } from "react"
+import { AlertTriangle } from "lucide-react"
+
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -28,17 +32,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   render(): ReactNode {
     if (this.state.error) {
       return (
-        <div className="mx-auto max-w-md rounded-base border-2 border-border bg-secondary-background p-6 text-center shadow-shadow">
-          <h2 className="font-heading text-2xl">Something broke 💥</h2>
-          <p className="mt-2 text-sm text-foreground/70">{this.state.error.message}</p>
-          <button
-            type="button"
-            onClick={this.handleReset}
-            className="mt-4 rounded-base border-2 border-border bg-main px-4 py-2 font-heading uppercase shadow-shadow"
-          >
-            Try again
-          </button>
-        </div>
+        <Card className="mx-auto max-w-md bg-secondary-background text-center">
+          <CardContent className="space-y-3">
+            <h2 className="flex items-center justify-center gap-2 font-heading text-2xl">
+              <AlertTriangle className="size-6" /> Something broke
+            </h2>
+            <p className="text-sm text-foreground/70">{this.state.error.message}</p>
+            <Button type="button" onClick={this.handleReset} className="font-heading uppercase">
+              Try again
+            </Button>
+          </CardContent>
+        </Card>
       )
     }
     return this.props.children

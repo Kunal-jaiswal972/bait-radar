@@ -17,3 +17,13 @@ export function baitAvatarColor(seed: string): string {
   }
   return BAIT_PALETTE[Math.abs(hash) % BAIT_PALETTE.length]
 }
+
+// Color for a 0..100 clickbait score, matching the likelihood bands (green =
+// Least/Less, yellow = Normal, orange = Highly, red = Most) so a dial and its
+// likelihood badge always agree.
+export function baitScoreColor(pct: number): string {
+  if (pct >= 80) return "var(--color-bait-red)"
+  if (pct >= 60) return "var(--color-bait-orange)"
+  if (pct >= 40) return "var(--color-bait-yellow)"
+  return "var(--color-bait-green)"
+}

@@ -1,9 +1,27 @@
-import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
-import type { Likelihood, Sentiment, SubStatus, Trend } from "@/data/types"
+import { Minus, TrendingDown, TrendingUp, type LucideIcon } from "lucide-react"
 
-// Brutalist colored badges built on the neobrutalism Badge primitive.
-// We pass a bg color via className; the border + radius come from the base.
+import { badgeVariants } from "@/components/ui/badge"
+import { HintTooltip } from "@/components/shared/hint-tooltip"
+import { cn } from "@/lib/utils"
+import { LIKELIHOOD_INFO, SENTIMENT_INFO, TREND_INFO } from "@/lib/labels"
+import type { Likelihood, Sentiment, Trend } from "@/data/types"
+
+// One self-explaining brutalist badge for every categorical metric. Each `kind`
+// maps its value to a color, an optional icon, and a plain-language explanation
+// shown on hover. Rendered as a <span> trigger (not a <button>) so it stays valid
+// inside the card <Link>s. Relies on the app-root TooltipProvider (see main.tsx).
+
+type MetaBadgeProps =
+  | { kind: "likelihood"; value: Likelihood }
+  | { kind: "sentiment"; value: Sentiment }
+  | { kind: "trend"; value: Trend }
+
+interface BadgeView {
+  color: string
+  title: string
+  body: string
+  icon?: LucideIcon
+}
 
 const likelihoodColor: Record<Likelihood, string> = {
   "Least Likely": "bg-bait-green",
@@ -13,10 +31,6 @@ const likelihoodColor: Record<Likelihood, string> = {
   "Most Likely": "bg-bait-red text-white",
 }
 
-export function LikelihoodBadge({ value }: { value: Likelihood }) {
-  return <Badge className={cn("font-heading uppercase", likelihoodColor[value])}>{value}</Badge>
-}
-
 const sentimentColor: Record<Sentiment, string> = {
   Positive: "bg-bait-green",
   Negative: "bg-bait-red text-white",
@@ -24,28 +38,55 @@ const sentimentColor: Record<Sentiment, string> = {
   Mixed: "bg-bait-purple",
 }
 
-export function SentimentBadge({ value }: { value: Sentiment }) {
-  return <Badge className={cn("font-heading uppercase", sentimentColor[value])}>{value}</Badge>
+const trendColor: Record<Trend, string> = {
+  rising: "bg-bait-red text-white",
+  falling: "bg-bait-green",
+  stable: "bg-secondary-background",
 }
 
-const statusColor: Record<SubStatus, string> = {
-  verified: "bg-bait-green",
-  pending: "bg-bait-yellow",
-  failed: "bg-bait-red text-white",
+const trendIcon: Record<Trend, LucideIcon> = {
+  rising: TrendingUp,
+  falling: TrendingDown,
+  stable: Minus,
 }
 
-export function StatusBadge({ value }: { value: SubStatus }) {
-  return <Badge className={cn("font-heading uppercase", statusColor[value])}>{value}</Badge>
+function resolve(props: MetaBadgeProps): BadgeView {
+  switch (props.kind) {
+    case "likelihood": {
+      const info = LIKELIHOOD_INFO[props.value]
+      return { color: likelihoodColor[props.value], title: `${props.value} · ${info.range} bait`, body: info.blurb }
+    }
+    case "sentiment":
+      return {
+        color: sentimentColor[props.value],
+        title: `${props.value} comments`,
+        body: SENTIMENT_INFO[props.value],
+      }
+    case "trend":
+      return {
+        color: trendColor[props.value],
+        title: `Trend: ${props.value}`,
+        body: TREND_INFO[props.value],
+        icon: trendIcon[props.value],
+      }
+  }
 }
 
-const trendGlyph: Record<Trend, string> = { rising: "▲", falling: "▼", stable: "▬" }
-
-export function TrendBadge({ value }: { value: Trend }) {
-  const color =
-    value === "rising" ? "bg-bait-red text-white" : value === "falling" ? "bg-bait-green" : "bg-secondary-background"
+export function MetaBadge(props: MetaBadgeProps) {
+  const { color, title, body, icon: Icon } = resolve(props)
   return (
-    <Badge className={cn("font-heading uppercase", color)}>
-      {trendGlyph[value]} {value}
-    </Badge>
+    <HintTooltip
+      content={
+        <span className="block">
+          <span className="block font-heading uppercase tracking-wide">{title}</span>
+          <span className="mt-1 block">{body}</span>
+        </span>
+      }
+    >
+      <span className={cn(badgeVariants(), "cursor-help font-heading uppercase", color)}>
+        {Icon && <Icon className="size-3" />}
+        {props.value}
+      </span>
+    </HintTooltip>
   )
 }

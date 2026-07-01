@@ -18,9 +18,27 @@ export function formatDuration(iso: string): string {
   return parts.join(" ")
 }
 
-/** ISO timestamp → short "Jun 26" label for chart axes. */
-export function formatShortDate(iso: string): string {
+/** ISO timestamp → "Jun 26, 2026"; falls back to the raw string when unparseable. */
+export function formatDate(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+}
+
+/** ISO timestamp → "Jun 26, 2 PM" for time-series axes/tooltips. */
+export function formatShortDateTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric" })
+}
+
+/** Seconds → "m:ss" (or "h:mm:ss") for transcript timestamps. */
+export function formatTimestamp(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(s / 3600)
+  const minutes = Math.floor((s % 3600) / 60)
+  const seconds = s % 60
+  const mm = hours > 0 ? String(minutes).padStart(2, "0") : String(minutes)
+  const ss = String(seconds).padStart(2, "0")
+  return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`
 }

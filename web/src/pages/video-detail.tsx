@@ -1,16 +1,21 @@
 import { Link, useParams } from "react-router-dom"
+import { Activity, ArrowLeft, Calendar, Clock, Eye, MessageSquare, ThumbsUp, type LucideIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { LikelihoodBadge, SentimentBadge } from "@/components/meta-badges"
+import { MetaBadge } from "@/components/meta-badges"
+import { BaitDial } from "@/components/bait-dial"
 import { ScoreMeter } from "@/components/score-meter"
 import { InfoTip } from "@/components/shared/info-tip"
+import { VideoDescription } from "@/components/video/video-description"
+import { ScoreBreakdown } from "@/components/video/score-breakdown"
+import { TranscriptPanel } from "@/components/video/transcript-panel"
+import { CommentsPanel } from "@/components/video/comments-panel"
 import { EngagementChart } from "@/components/charts/engagement-chart"
 import { SentimentDonut } from "@/components/charts/sentiment-donut"
 import { ErrorState, LoadingState } from "@/components/shared/query-state"
 import { useVideoDetail } from "@/lib/queries"
-import { formatCompact, formatDuration } from "@/lib/format"
+import { formatCompact, formatDate, formatDuration } from "@/lib/format"
 import type { VideoDetail } from "@/data/types"
 
 const PILLAR_TIPS = {
@@ -37,7 +42,9 @@ function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="space-y-8">
       <Button asChild variant="neutral" className="font-heading uppercase">
-        <Link to="/videos">← Back to videos</Link>
+        <Link to="/videos">
+          <ArrowLeft className="size-4" /> Back to videos
+        </Link>
       </Button>
       {children}
     </div>
@@ -45,12 +52,14 @@ function PageShell({ children }: { children: React.ReactNode }) {
 }
 
 function VideoDetailView({ video }: { video: VideoDetail }) {
-  const { pillars, comment_sentiment_distribution: dist } = video
+  const insights = video.insights
+  const pillars = insights?.pillars
+  const dist = insights?.comment?.distribution
 
   return (
     <div className="space-y-8">
       <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
-        <div className="overflow-hidden rounded-base border-2 border-border shadow-shadow">
+        <div className="self-start overflow-hidden rounded-base border-2 border-border shadow-shadow">
           <div className="aspect-video w-full">
             <iframe
               src={`https://www.youtube.com/embed/${video.videoId}`}
@@ -63,24 +72,53 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
         </div>
 
         <Card>
-          <CardContent className="flex h-full flex-col justify-between gap-4">
-            <div className="space-y-2">
-              <h1 className="font-heading text-2xl leading-tight">{video.title}</h1>
-              <p className="text-sm font-heading uppercase tracking-wide text-foreground/55">
-                {video.channelTitle || video.channelId} · {formatCompact(video.views)} views
-              </p>
-              <p className="line-clamp-4 text-sm text-foreground/75">{video.description}</p>
+          <CardContent className="flex h-full flex-col justify-between gap-5">
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <h1 className="font-heading text-2xl leading-tight">{video.title}</h1>
+                <p className="text-sm font-heading text-foreground/60">
+                  {video.channelTitle || video.channelId}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                <Stat icon={Eye} value={formatCompact(video.views)} label="Views" />
+                {video.likes > 0 && (
+                  <Stat icon={ThumbsUp} value={formatCompact(video.likes)} label="Likes" />
+                )}
+                <Stat icon={Calendar} value={formatDate(video.publishedAt)} label="Published" />
+                {formatDuration(video.duration) && (
+                  <Stat icon={Clock} value={formatDuration(video.duration)} label="Length" />
+                )}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <LikelihoodBadge value={video.likelihood} />
-              <SentimentBadge value={video.comment_sentiment} />
-              {formatDuration(video.duration) && (
-                <Badge variant="neutral" className="font-heading">⏱ {formatDuration(video.duration)}</Badge>
-              )}
+            <div className="flex items-center gap-4">
+              <BaitDial value={video.clickbait_percentage} />
+              <div className="flex flex-col gap-2">
+                <LabeledBadge caption="Clickbait">
+                  <MetaBadge kind="likelihood" value={video.likelihood} />
+                </LabeledBadge>
+                {insights?.comment?.overall && (
+                  <LabeledBadge caption="Comment mood">
+                    <MetaBadge kind="sentiment" value={insights.comment.overall} />
+                  </LabeledBadge>
+                )}
+                {insights?.transcript?.sentiment && (
+                  <LabeledBadge caption="Transcript tone">
+                    <MetaBadge kind="sentiment" value={insights.transcript.sentiment} />
+                  </LabeledBadge>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardContent className="space-y-2">
+          <h2 className="font-heading text-xl">Description</h2>
+          <VideoDescription text={video.description} />
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -89,8 +127,8 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
               <h2 className="font-heading text-xl">Bait Score</h2>
               <span className="font-heading text-4xl">{video.clickbait_percentage}%</span>
             </div>
-            <PillarMeter label="Packaging bait" tip={PILLAR_TIPS.packaging} value={toPct(pillars.packaging)} />
-            {pillars.mismatch.available ? (
+            <PillarMeter label="Packaging bait" tip={PILLAR_TIPS.packaging} value={toPct(pillars?.packaging)} />
+            {pillars?.mismatch?.available ? (
               <PillarMeter
                 label="Promise–payoff mismatch"
                 tip={PILLAR_TIPS.mismatch}
@@ -99,69 +137,70 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
             ) : (
               <UnavailablePillar label="Promise–payoff mismatch" tip={PILLAR_TIPS.mismatch} />
             )}
-            <PillarMeter label="Audience betrayal" tip={PILLAR_TIPS.betrayal} value={toPct(pillars.betrayal)} />
-            <p className="border-t-2 border-dashed border-border pt-3 text-xs text-foreground/55">
-              {video.betrayal_detail.flagged_count} of {video.betrayal_detail.total_comments} comments flagged as
-              betrayed. Estimated from public packaging, content & audience reaction — it does not include watch-time,
-              which only the creator can authorize.
+            <PillarMeter label="Audience betrayal" tip={PILLAR_TIPS.betrayal} value={toPct(pillars?.betrayal)} />
+            <p className="text-xs text-foreground/55">
+              {insights?.betrayal?.flagged_count ?? 0} of {insights?.betrayal?.total_comments ?? 0} comments
+              flagged as betrayed.
             </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardContent className="space-y-3">
-            <h2 className="font-heading text-xl">🖼️ Thumbnail Forensics</h2>
-            <Forensic label="OCR text" items={video.thumbnail.ocr_text} className="bg-bait-yellow" />
-            <Forensic label="Vision tags" items={video.thumbnail.tags} className="bg-bait-blue" />
-            <Forensic label="Objects" items={video.thumbnail.objects} className="bg-bait-green" />
+          <CardContent className="space-y-2">
+            <h2 className="flex items-center gap-2 font-heading text-xl">
+              <MessageSquare className="size-5" /> Comment Sentiment
+            </h2>
+            <SentimentDonut dist={dist} />
           </CardContent>
         </Card>
       </div>
 
-      {video.timeline.length > 0 && (
+      <ScoreBreakdown video={video} />
+
+      {video?.timeline?.length > 0 && (
         <Card>
           <CardContent className="space-y-2">
-            <h2 className="font-heading text-xl">📈 Engagement Velocity</h2>
-            <p className="text-sm text-foreground/70">Views & likes captured over time.</p>
-            <EngagementChart data={video.timeline} />
+            <h2 className="flex items-center gap-2 font-heading text-xl">
+              <Activity className="size-5" /> Engagement Velocity
+            </h2>
+            <p className="text-sm text-foreground/70">Views, likes and comments captured over time.</p>
+            <EngagementChart data={video?.timeline} />
           </CardContent>
         </Card>
       )}
 
+      <TranscriptPanel lines={video?.transcript} sentiment={insights?.transcript?.sentiment} />
+
       <Card>
-        <CardContent className="grid gap-6 md:grid-cols-[260px_1fr]">
-          <div>
-            <h2 className="font-heading text-xl">💬 Comment Sentiment</h2>
-            <SentimentDonut dist={dist} />
-          </div>
-          {video.comments.length > 0 ? (
-            <ul className="space-y-3">
-              {video.comments.map((c, i) => (
-                <li
-                  key={`${c.author}-${i}`}
-                  className="rounded-base border-2 border-border bg-secondary-background p-3 shadow-shadow"
-                >
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="text-sm font-heading">@{c.author}</span>
-                    <SentimentBadge value={c.sentiment} />
-                  </div>
-                  <p className="text-sm text-foreground/80">{c.text}</p>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="self-center text-sm font-heading uppercase tracking-wide text-foreground/50">
-              No comments collected.
-            </p>
-          )}
+        <CardContent className="space-y-4">
+          <h2 className="flex flex-wrap items-center gap-2 font-heading text-xl">
+            <MessageSquare className="size-5" /> Comments
+            {insights?.comment?.overall && <MetaBadge kind="sentiment" value={insights.comment.overall} />}
+          </h2>
+          <CommentsPanel comments={video.comments} />
         </CardContent>
       </Card>
     </div>
   )
 }
 
-function toPct(value: number): number {
-  return Math.round(value * 100)
+function toPct(value: number | undefined): number {
+  return Math.round((value ?? 0) * 100)
+}
+
+// A single labeled stat (icon + value + caption) for the video's info card.
+function Stat({ icon: Icon, value, label }: { icon: LucideIcon; value: string; label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="grid size-8 shrink-0 place-items-center rounded-base border-2 border-border bg-secondary-background">
+        <Icon className="size-4" />
+      </span>
+      <span className="flex min-w-0 flex-col leading-tight">
+        <span className="truncate font-heading">{value}</span>
+        <span className="text-[0.6rem] font-heading uppercase tracking-widest text-foreground/50">{label}</span>
+      </span>
+    </div>
+  )
 }
 
 function PillarMeter({ label, tip, value }: { label: string; tip: string; value: number }) {
@@ -184,27 +223,6 @@ function UnavailablePillar({ label, tip }: { label: string; tip: string }) {
       <span className="flex items-center gap-1.5">
         {label} <InfoTip label={label} text={tip} /> · unavailable (no transcript)
       </span>
-    </div>
-  )
-}
-
-function Forensic({ label, items, className }: { label: string; items: string[]; className: string }) {
-  if (items.length === 0) {
-    return (
-      <div>
-        <p className="mb-1.5 text-xs font-heading uppercase tracking-wide text-foreground/55">{label}</p>
-        <p className="text-xs text-foreground/40">— none detected</p>
-      </div>
-    )
-  }
-  return (
-    <div>
-      <p className="mb-1.5 text-xs font-heading uppercase tracking-wide text-foreground/55">{label}</p>
-      <div className="flex flex-wrap gap-2">
-        {items.map((it) => (
-          <Badge key={it} className={`font-base ${className}`}>{it}</Badge>
-        ))}
-      </div>
     </div>
   )
 }
