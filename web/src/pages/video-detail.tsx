@@ -91,7 +91,7 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-8">
               <BaitDial value={video.clickbait_percentage} />
               <div className="flex flex-col gap-2">
                 <LabeledBadge caption="Clickbait">
@@ -200,6 +200,19 @@ function Stat({ icon: Icon, value, label }: { icon: LucideIcon; value: string; l
         <span className="text-[0.6rem] font-heading uppercase tracking-widest text-foreground/50">{label}</span>
       </span>
     </div>
+  )
+}
+
+// A captioned badge row (fixed-width caption so the badges align) used beside the
+// bait dial for likelihood / comment mood / transcript tone.
+function LabeledBadge({ caption, children }: { caption: string; children: React.ReactNode }) {
+  return (
+    <span className="flex items-center gap-2">
+      <span className="w-28 shrink-0 text-[0.6rem] font-heading uppercase tracking-widest text-foreground/50">
+        {caption}
+      </span>
+      {children}
+    </span>
   )
 }
 
