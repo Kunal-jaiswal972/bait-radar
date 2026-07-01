@@ -3,8 +3,8 @@
 A serverless, event-driven pipeline on **Azure Functions v4** that watches YouTube
 channels, ingests every new upload, extracts its metadata / comments / transcript,
 runs **AI clickbait + sentiment analysis**, persists structured insights to **Cosmos
-DB**, and tracks engagement velocity over time. The data is exposed through an API
-for a React dashboard (Phase 7).
+DB**, and tracks engagement velocity over time. The data is served by a dashboard
+API and consumed by a **React SPA** (in `web/`).
 
 The pipeline is **push-based**: YouTube notifies us the moment a video is published
 (via PubSubHubbub), so there is no polling of the upload feed.
@@ -30,32 +30,31 @@ The pipeline is **push-based**: YouTube notifies us the moment a video is publis
 
 ## Architecture
 
-```
-                                    ┌─────────────────────────────────┐
-   YouTube PubSubHubbub ──webhook──▶│  APIM (public front door)       │
-                                    └───────────────┬─────────────────┘
-                                                    │
-        ┌───────────────────────────┬───────────────┼──────────────────────────┐
-        ▼                           ▼               ▼                          ▼
-  POST /channels            /webhook/youtube   /dashboard/.../refresh    /dashboard/.../transcript
-  (HTTP fn)                 (HTTP fn)          (HTTP fn, Phase 6)         (HTTP fn, Phase 6)
-        │                           │
-        │ save + subscribe          │ publish {videoId, channelId}
-        ▼                           ▼
-   Cosmos:Channels         Event Hub: video-ingestion-hub
-                                    │
-                                    ▼
-                          EventHubTrigger: processVideoIngestion ──┐
-                          (YouTube Data API + Python transcript)   │
-                                                                   ▼
-                                                          AI enrichment layer
-                                              (Vision + Gemini + Azure AI Language)
-                                                                   ▼
-                                                        Cosmos: VideoInsights (upsert)
-                                                                   ▲
-                          TimerTrigger (daily, Phase 5) ───────────┘  (append timeline + new comments)
+There are **two Function Apps** (a Function App is single-runtime, so Node and
+Python can't share one): the **Node app** with everything except transcripts, and
+a small **Python transcript app** (`transcript-service/`) that the ingestion worker
+calls over HTTP as an internal API. Only the Node app is public (via APIM).
 
-                          Cosmos: VideoInsights ──read──▶ Dashboard API ──▶ React SPA (Phase 7)
+```
+   React SPA (web/) ─────────┐
+   (Azure Static Web Apps)   │
+                             ▼
+   YouTube PubSubHubbub ──▶ APIM (public front door) ──▶ NODE Function App
+                                                          ├─ POST /api/channels        (save + subscribe)
+                                                          ├─ GET|POST /api/webhook/youtube (publish {videoId,channelId})
+                                                          ├─ GET /api/dashboard/*       (read models for the SPA)
+                                                          └─ EventHubTrigger: processVideoIngestion
+                                                                 │                    │
+                        Cosmos: Channels ◀── save              │ metadata/comments  │ transcript (HTTP + key)
+                                                                 ▼                    ▼
+                                                        AI enrichment layer     PYTHON transcript app
+                                                (Vision + Gemini + AI Language)  (transcript-service/, internal)
+                                                                 ▼                youtube-transcript-api
+                                                       Cosmos: VideoInsights (upsert)
+                                                                 ▲
+                        TimerTrigger (daily, Phase 5) ───────────┘  (append timeline + new comments)
+
+                        Cosmos: VideoInsights ──read──▶ Dashboard API ──▶ React SPA
 ```
 
 Two ideas drive the design:
@@ -66,7 +65,7 @@ Two ideas drive the design:
    Event Hub trigger, so a slow YouTube/AI call never blocks (and never causes the
    hub to retry the webhook).
 2. **Degrade, never block.** Every external dependency (Vision, Gemini, Language,
-   the transcript scraper) can fail independently and the pipeline still persists
+   the transcript service) can fail independently and the pipeline still persists
    whatever succeeded. See [Resilience & degradation](#resilience--degradation).
 
 ---
@@ -77,13 +76,14 @@ Two ideas drive the design:
 |---|---|
 | Compute | Azure Functions v4, Node.js **v4 programming model** (TypeScript) |
 | Runtime / package manager | **Bun** (local dev, build, deps); Azure runs Node at runtime |
+| Frontend | **React + Vite** SPA (neobrutalism UI, TanStack Query) in `web/`, hosted on Azure Static Web Apps |
 | API gateway | Azure API Management (APIM) |
 | Message broker | Azure Event Hubs (`video-ingestion-hub`) |
 | Database | Azure Cosmos DB (NoSQL) — `Channels`, `VideoInsights` |
 | Thumbnail vision | Azure AI Vision (Image Analysis 4.0 — Read / Tags / Objects) |
 | LLM | Google **Gemini Flash** (`gemini-2.5-flash`) — sole LLM provider |
 | Sentiment NLP | Azure AI Language (Text Analytics sentiment) |
-| Transcripts | Python `youtube-transcript-api` via `child_process.spawn()` |
+| Transcripts | Python `youtube-transcript-api` in a **separate Python Function App** (`transcript-service/`), called over HTTP |
 | Validation | **Zod** at every trust boundary (env, HTTP bodies, queue messages, AI responses, Cosmos reads) |
 
 ---
@@ -102,9 +102,9 @@ Two ideas drive the design:
    fetches video metadata + statistics. **Shorts** (duration < `MIN_VIDEO_SECONDS_THRESHOLD`) are
    skipped here and never persisted. For everything else it also fetches:
    - up to 200 newest comments (`commentThreads`, time order, paginated),
-   - the transcript (Python scraper via `spawn`).
+   - the transcript — an **HTTP call to the Python transcript app** (`transcript-service/`).
 5. **AI enrichment** — three clickbait pillars (packaging Vision+Gemini, promise–payoff
-   mismatch, comment betrayal) → `clickbait_percentage`; plus transcript-hook sentiment
+   mismatch, comment betrayal) → `clickbait_percentage`; plus whole-transcript sentiment
    and per-comment sentiment + opinion mining.
 6. **Persist** — the assembled `VideoInsights` document is upserted to Cosmos. Re-runs
    merge with the existing doc so nothing is lost, and a new `timeline` snapshot is
@@ -129,10 +129,12 @@ src/
 │  ├─ ingestion.ts        #   Event Hub message
 │  ├─ insights.ts         #   AI insights block + ClickbaitSignals
 │  ├─ video.ts            #   VideoInsights document
+│  ├─ dashboard.ts        #   user-facing dashboard DTOs (projection of the docs)
 │  └─ index.ts            #   barrel
 ├─ domain/                # Pure logic, no I/O
 │  ├─ atom.ts             #   Atom feed parsing + topic URLs
 │  ├─ lexicons.ts         #   loads the word/phrase lists from src/data/*.txt (cached)
+│  ├─ dashboardMappers.ts #   VideoInsights/Channels docs → dashboard DTOs (strips internals)
 │  └─ clickbait.ts        #   heuristic, packaging merge, betrayal, aggregate, channel rollup
 ├─ data/                  # Editable lexicons (loaded at startup; grow freely)
 │  ├─ clickbait-words.txt #   sensational / power / curiosity words for the heuristic
@@ -152,21 +154,28 @@ src/
 │  ├─ channelService.ts   #   register channel, subscription, channel clickbait rollup
 │  ├─ ingestionService.ts #   publish to Event Hub
 │  ├─ videoService.ts     #   YouTube metadata + comments + recent uploads
-│  ├─ transcriptService.ts#   Python transcript scraper bridge
+│  ├─ transcriptService.ts#   HTTP client for the Python transcript app (TRANSCRIPT_FUNCTION_URL)
 │  ├─ visionService.ts    #   thumbnail OCR/tags/objects
 │  ├─ geminiService.ts    #   generateScore() + image part (timeout/parse around Gemini)
 │  ├─ clickbaitService.ts #   packaging pillar (heuristic + multimodal Gemini)
 │  ├─ mismatchService.ts  #   promise–payoff pillar (Azure key phrases → Gemini)
 │  ├─ sentimentService.ts #   Azure AI Language sentiment + opinion mining
 │  └─ enrichmentService.ts#   orchestrates all pillars → insights block
-├─ functions/             # Azure Functions entry points (triggers only)
-│  ├─ registerChannel.ts  #   POST /api/channels
-│  ├─ youtubeWebhook.ts   #   GET/POST /api/webhook/youtube
-│  └─ processVideoIngestion.ts # EventHubTrigger (skips Shorts; updates channel rollup)
+├─ functions/             # Azure Functions entry points (thin triggers), grouped by role
+│  ├─ apis/registerChannel.ts       #   POST /api/channels
+│  ├─ webhook/youtubeWebhook.ts     #   GET/POST /api/webhook/youtube
+│  ├─ dashboard/dashboardApi.ts     #   GET /api/dashboard/* (channels, videos, detail)
+│  └─ triggers/processVideoIngestion.ts # EventHubTrigger (skips Shorts; updates channel rollup)
 └─ scripts/
-   ├─ backfill.ts         # seed recent uploads of tracked channels through the hub
-   ├─ fetch_transcript.py # youtube-transcript-api 1.x scraper (JSON to stdout)
-   └─ requirements.txt
+   └─ backfill.ts         # seed recent uploads of tracked channels through the hub
+
+transcript-service/        # SEPARATE Python Function App (internal transcript API)
+├─ function_app.py         #   GET|POST /api/transcript?videoId= → { segments: [...] }
+├─ requirements.txt        #   azure-functions, youtube-transcript-api
+├─ host.json / .funcignore
+└─ local.settings.json     #   gitignored
+
+web/                       # React + Vite SPA (dashboard) — see web/ for its own scripts
 ```
 
 **Why this shape:**
@@ -246,7 +255,7 @@ src/
       "likelihood": "Less Likely",           // 5-level label
       "weights": { "packaging": 0.4, "mismatch": 0.4, "betrayal": 0.2 }
     },
-    "transcript_sentiment": { "label": "Positive", "window_seconds": 15 },
+    "transcript_sentiment": { "label": "Positive" },   // sentiment of the whole transcript
     "comment_sentiment": {
       "overall": "Positive",
       "counts":        { "positive": 60, "negative": 10, "neutral": 25, "mixed": 5 },
@@ -268,6 +277,13 @@ src/
   ]
 }
 ```
+
+> **Dashboard projection.** The read APIs don't return these documents verbatim —
+> `domain/dashboardMappers.ts` projects them into user-facing DTOs (`types/dashboard.ts`)
+> that group all analysis under a single `insights` object
+> (`pillars` / `comment` / `transcript` / `thumbnail`) and **omit model internals**
+> (packaging `heuristic_score` / `llm_score` / `llm_source`, effective `weights`, and the
+> mismatch `source`). So the SPA sees only final scores + the datapoints behind them.
 
 ---
 
@@ -325,9 +341,9 @@ the `Channels` doc.
 > but are **not** part of the clickbait score — they measure mood, not deception.
 
 ### Sentiment (`sentimentService.ts`)
-Azure AI Language. The **transcript hook** (first 15s) gets a single-doc call; the
-**comments** are batched (10 docs/request, ≤5000 chars each) with results aligned back
-to input order. Each comment keeps its `confidence` scores; `comment_sentiment`
+Azure AI Language. The **whole transcript** gets a single-doc call (capped at the
+service's ~5000-char per-document limit); the **comments** are batched (10 docs/request,
+≤5000 chars each) with results aligned back to input order. Each comment keeps its `confidence` scores; `comment_sentiment`
 aggregates counts, distribution, and the mean confidence (overall = argmax of means).
 The comment call also enables **Opinion Mining** (`includeOpinionMining`) — same call,
 no extra cost — surfacing aspect-level opinions (`target` + sentiment) per comment.
@@ -347,8 +363,8 @@ other two paid services; transcripts are free (scraped).
 | Metadata API transient error | re-throws → Event Hub re-delivers (eventually DLQ) |
 | Comments disabled | treated as `[]` (permanent, not an error) |
 | Comment fetch transient error | logged; `transcript_status = failed_retryable`, run continues |
-| No transcript available | `TranscriptUnavailableError` (exit 3) → status stays, run continues |
-| Transcript transient/timeout | `transcript_status = failed_retryable`, run continues |
+| No transcript available | transcript app returns **404** → `TranscriptUnavailableError`, status stays, run continues |
+| Transcript app 5xx / unreachable / timeout / URL unset | `TranscriptFetchError` → `transcript_status = failed_retryable`, run continues |
 | Video is a Short (< `MIN_VIDEO_SECONDS_THRESHOLD`) | skipped entirely — not enriched, not persisted |
 | Vision down | empty OCR/tags/objects; packaging still scores on title/description |
 | Gemini down (packaging) | `packaging.llm_source = heuristic_fallback`; packaging = heuristic only |
@@ -385,15 +401,26 @@ degraded path trades away accuracy. Know what you lose:
 
 ## HTTP endpoints
 
+**Node app** (public, via APIM):
+
 | Method | Route | Purpose |
 |---|---|---|
 | `POST` | `/api/channels` | Register a channel (`{ channel \| url \| channelId }`) and subscribe |
 | `GET`  | `/api/webhook/youtube` | PubSubHubbub verification handshake (echoes `hub.challenge`) |
 | `POST` | `/api/webhook/youtube` | Atom upload notification → publish to Event Hub, `202` |
+| `GET`  | `/api/dashboard/channels` | tracked channels + clickbait rollup |
+| `GET`  | `/api/dashboard/videos` | recent analyzed videos (cards) |
+| `GET`  | `/api/dashboard/channels/{channelId}/videos` | a channel's videos |
+| `GET`  | `/api/dashboard/videos/{videoId}` | full video detail (insights, transcript, comments, timeline) |
+
+**Python app** (internal — called only by the Node worker, not via APIM):
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET`, `POST` | `/api/transcript?videoId=` | fetch a transcript → `{ segments: [{text,start,duration}] }`; `404` = none, `503` = retry |
 
 > `EventHubTrigger` (`processVideoIngestion`) is not an HTTP endpoint — it fires off the
-> `video-ingestion-hub`. Dashboard read APIs and refresh/transcript write-backs come in
-> Phases 6–7.
+> `video-ingestion-hub`. Refresh/transcript write-backs come in Phase 6.
 
 ---
 
@@ -402,36 +429,80 @@ degraded path trades away accuracy. Know what you lose:
 ### Prerequisites
 - **Bun** (package manager + build)
 - **Azure Functions Core Tools v4** (`func --version` → 4.x)
-- **Python 3.9+** (for the transcript scraper)
+- **Python 3.10–3.12** (for the transcript app)
 - Azure resources: Cosmos DB, Event Hubs, AI Vision, AI Language; a YouTube Data API
   key; a Gemini API key.
 
-### Setup
+### One-time setup
 ```bash
-# 1. Install Node deps
+# Node deps + build
 bun install
-
-# 2. Python venv for the transcript scraper
-python -m venv .venv
-.venv/Scripts/python -m pip install -r src/scripts/requirements.txt   # Windows
-# source .venv/bin/activate && pip install -r src/scripts/requirements.txt  # macOS/Linux
-
-# 3. Configure secrets (see next section) in local.settings.json — gitignored
-
-# 4. Build + run
 bun run build
-bun run start          # runs `func start` (prestart builds first)
+
+# Python transcript app deps (its own venv)
+cd transcript-service
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt   # Windows (use python -m pip, not pip.exe)
+# .venv/bin/python -m pip install -r requirements.txt           # macOS/Linux
+cd ..
 ```
 
-`local.settings.json` is **local-only and gitignored** — it is never deployed. In
-Azure the same keys live as Function App **Application Settings**.
+Then create two **gitignored** `local.settings.json` files:
 
-### The transcript scraper
-`fetch_transcript.py` uses `youtube-transcript-api` **1.x** (the 0.6.x classmethod API
-is broken against current YouTube endpoints). It prints `{text,start,duration}[]` JSON to
-stdout and signals outcome via exit code: `0` success, `2` bad usage, `3` permanently
-unavailable, `1` transient/retryable. `PYTHON_BIN` points the worker at the venv
-interpreter.
+- **root** (Node app) — the vars in [Environment variables](#environment-variables), and
+  `"TRANSCRIPT_FUNCTION_URL": "http://localhost:7072/api/transcript"` (no key needed locally).
+- **`transcript-service/`** — `{ "IsEncrypted": false, "Values": { "AzureWebJobsStorage": "", "FUNCTIONS_WORKER_RUNTIME": "python" } }`.
+
+`local.settings.json` is **local-only and never deployed**; in Azure the same keys live
+as Function App **Application Settings**.
+
+### Run all services locally (3 terminals)
+```bash
+# Terminal 1 — Python transcript app (port 7072)
+cd transcript-service
+.\.venv\Scripts\Activate.ps1        # macOS/Linux: source .venv/bin/activate
+func start --port 7072
+
+# Terminal 2 — Node Function App (port 7071)
+bun run start                       # = prestart build, then `func start`
+
+# Terminal 3 — React dashboard (Vite, port 5173; proxies /api → :7071)
+cd web && bun install && bun run dev
+```
+
+Open **http://localhost:5173**. Browsing the dashboard needs Terminals 2 + 3; the Python
+app (Terminal 1) is hit when a video is ingested. This mirrors Azure exactly — Node calls
+Python over HTTP, just at `localhost:7072` instead of the deployed URL.
+
+### Test the whole pipeline end-to-end
+With Terminals 1 + 2 running, POST a WebSub upload notification to the local webhook — it
+publishes to Event Hub, the `processVideoIngestion` trigger consumes it, fetches
+metadata/comments/transcript, enriches, and upserts to Cosmos:
+
+```bash
+# Atom body: only yt:videoId + yt:channelId are required
+cat > upload.xml <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <yt:videoId>UF8uR6Z6KLc</yt:videoId>
+    <yt:channelId>UC-EnprmCZ3OXyAoG7vjVNCA</yt:channelId>
+    <published>2026-07-01T00:00:00+00:00</published>
+  </entry>
+</feed>
+XML
+
+curl -X POST http://localhost:7071/api/webhook/youtube \
+  -H "Content-Type: application/atom+xml" --data-binary @upload.xml    # -> 202
+
+# poll until processed (worker logs "Persisted <id>: … transcript=success (N segments) …")
+curl http://localhost:7071/api/dashboard/videos/UF8uR6Z6KLc            # -> 200 with full detail
+```
+
+The Python transcript app alone can also be smoke-tested:
+```bash
+curl "http://localhost:7072/api/transcript?videoId=UF8uR6Z6KLc"       # -> { "segments": [...] }
+```
 
 ### Seeding data (backfill)
 Videos only enter the system via the **webhook** (new uploads) — there is no
@@ -470,14 +541,18 @@ Validated by `config/env.ts` (Zod) on first access — missing **required** vars
 | `EVENTHUB_NAME` | `video-ingestion-hub` |
 | `PUBSUBHUBBUB_HUB_URL` | `https://pubsubhubbub.appspot.com/subscribe` |
 | `GEMINI_MODEL` | `gemini-2.5-flash` |
-| `PYTHON_BIN` | `python` |
 | `MIN_VIDEO_SECONDS_THRESHOLD` | `60` — videos shorter than this are treated as Shorts and skipped entirely |
 | `LEXICON_DIR` | unset → `src/data` — directory holding the clickbait/betrayal/stopword `.txt` files |
 
+**Transcript app (internal)**
+| Key | Notes |
+|---|---|
+| `TRANSCRIPT_FUNCTION_URL` | Python app endpoint. Local: `http://localhost:7072/api/transcript`. Azure: `https://<pyapp>.azurewebsites.net/api/transcript`. Unset → transcripts fail as `failed_retryable` (non-fatal). |
+| `TRANSCRIPT_FUNCTION_KEY` | the Python app's function key (sent as `x-functions-key`). Not needed locally. |
+
 **Optional (features degrade if absent)**
 `PUBSUBHUBBUB_CALLBACK_URL`, `PUBSUBHUBBUB_VERIFY_TOKEN`, `PUBSUBHUBBUB_LEASE_SECONDS`,
-`GEMINI_API_KEY`, `VISION_ENDPOINT`, `VISION_KEY`, `LANGUAGE_ENDPOINT`, `LANGUAGE_KEY`,
-`SCRIPTS_DIR`.
+`GEMINI_API_KEY`, `VISION_ENDPOINT`, `VISION_KEY`, `LANGUAGE_ENDPOINT`, `LANGUAGE_KEY`.
 
 > **Two Event Hub keys?** Yes. Your producer code reads a connection *string*
 > (`EVENTHUB_CONNECTION_STRING`); the Functions trigger binding resolves a setting by
@@ -487,25 +562,32 @@ Validated by `config/env.ts` (Zod) on first access — missing **required** vars
 
 ## Deployment
 
-The local `local.settings.json` is never deployed. In Azure:
+Full step-by-step (Azure CLI, both Function Apps, APIM, Static Web App, and the WebSub
+wiring) lives in **[`DEPLOYMENT.md`](DEPLOYMENT.md)**. In short — four deploy units:
 
-1. **Function App (Node)** — deploy with `func azure functionapp publish <app-name>`.
-   The Consumption plan is fine to start.
-2. **App Settings** — every env var above becomes an encrypted Application Setting,
-   injected into the process as `process.env.*` (so `env()` works unchanged). They are
-   server-side only and visible only to RBAC-authorized users.
-   - **Hardening:** store secrets in **Key Vault** and reference them
-     (`@Microsoft.KeyVault(SecretUri=…)`); the app reads them via its **Managed
-     Identity** — no raw secrets in config.
-   - **Best:** drop connection strings entirely and grant the Function App's managed
-     identity RBAC roles (Cosmos Data Contributor, Event Hubs Data Receiver/Sender) so
-     bindings authenticate with zero stored secrets.
-3. **Python transcripts** — the Node Functions host has no Python. Deploy
-   `fetch_transcript.py` as a **separate Python Function App** (no Docker needed) and
-   have `transcriptService.ts` call it over HTTP. That service is the single seam to
-   change (swap `spawn` → `fetch`).
-4. **APIM** — put API Management in front for the public routes, then set
-   `PUBSUBHUBBUB_CALLBACK_URL` to the APIM webhook URL.
+1. **Python transcript app** (`transcript-service/`) — Linux, Python 3.11. Deploy first
+   (`func azure functionapp publish <pyapp>`), then note its URL + function key.
+2. **Node Function App** — `bun run build` then `func azure functionapp publish <app> --javascript`.
+   Set every env var above as an **Application Setting**, including
+   `TRANSCRIPT_FUNCTION_URL` / `TRANSCRIPT_FUNCTION_KEY` from step 1, and **both**
+   `EVENTHUB_CONNECTION_STRING` and `EventHubConnection`.
+3. **APIM** — fronts the **Node app only** (the transcript app stays internal). Set
+   `PUBSUBHUBBUB_CALLBACK_URL` to the APIM webhook URL; keep `webhook/youtube` key-free.
+4. **Static Web App** — build `web/` with `VITE_API_BASE_URL=https://<apim>/api`, deploy `web/dist`.
+
+**Do the Function Apps ship `node_modules`?** They ship whatever their runtime needs:
+- **Node app** — `dist/` (compiled functions) **and** `node_modules` (runtime deps). Since
+  deps are installed with **bun** (no npm/yarn/pnpm lockfile Oryx recognizes), ship the
+  locally-installed `node_modules` rather than relying on a remote `npm install`. The root
+  `.funcignore` keeps `dist/`, `node_modules/`, `src/` (lexicons load from `src/data/` at
+  runtime) and excludes `web/` + `transcript-service/`.
+- **Python app** — **no `node_modules`.** It ships `function_app.py` + `requirements.txt`;
+  Azure runs a remote build (Oryx `pip install`) to produce its Python packages.
+
+**Secrets hardening:** store connection strings in **Key Vault** and reference them
+(`@Microsoft.KeyVault(SecretUri=…)`) via the app's **Managed Identity**; or drop
+connection strings entirely and grant the identity RBAC roles (Cosmos Data Contributor,
+Event Hubs Data Receiver/Sender) for zero stored secrets.
 
 ---
 
@@ -522,9 +604,10 @@ See [`plan.md`](plan.md) for the full phased plan.
 | 4 | Persistence to Cosmos (strict schema) | ✅ Done |
 | — | Backfill script + extended data (likes/comments/duration) + Shorts filter | ✅ Done |
 | 8 | Clickbait model v2 (packaging + mismatch + betrayal → percentage; channel rollup; opinion mining) | ✅ Done |
+| 7 | React dashboard frontend (`web/`) + dashboard read APIs | ✅ Done |
+| — | Transcripts extracted to a standalone Python Function App (HTTP internal API) | ✅ Done |
 | 5 | Time-series tracking (daily timer) | ⏭ Next |
 | 6 | Dashboard write-back endpoints (refresh / transcript override) | ⬜ Planned |
-| 7 | React dashboard frontend | ⬜ Planned |
 
 ---
 

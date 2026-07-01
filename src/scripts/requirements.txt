@@ -1,4 +1,0 @@
-# 1.x API: YouTubeTranscriptApi().fetch(video_id) -> FetchedTranscript.
-# The 0.6.x classmethod get_transcript() broke against YouTube's current
-# responses ("no element found"), so we target the maintained 1.x line.
-youtube-transcript-api>=1.2.4,<2.0.0

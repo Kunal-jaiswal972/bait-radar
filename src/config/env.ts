@@ -11,7 +11,6 @@ const envSchema = z.object({
   EVENTHUB_NAME: z.string().default("video-ingestion-hub"),
   PUBSUBHUBBUB_HUB_URL: z.string().default("https://pubsubhubbub.appspot.com/subscribe"),
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
-  PYTHON_BIN: z.string().default("python"),
   MIN_VIDEO_SECONDS_THRESHOLD: z.coerce.number().default(60), // videos shorter than this are treated as Shorts and skipped
 
   // Optional: features degrade or are environment-specific.
@@ -23,7 +22,8 @@ const envSchema = z.object({
   VISION_KEY: z.string().optional(),
   LANGUAGE_ENDPOINT: z.string().optional(),
   LANGUAGE_KEY: z.string().optional(),
-  SCRIPTS_DIR: z.string().optional(),
+  TRANSCRIPT_FUNCTION_URL: z.string().optional(), // Python transcript Function App endpoint
+  TRANSCRIPT_FUNCTION_KEY: z.string().optional(), // its function key (sent as x-functions-key)
   LEXICON_DIR: z.string().optional(), // dir holding the clickbait/betrayal/stopword .txt files
 });
 

@@ -1,0 +1,17 @@
+.git*
+.vscode
+.codegraph
+.venv
+__pycache__
+
+# Other deploy units — must NOT go in the Node package
+web
+transcript-service
+
+# Local + docs
+local.settings.json
+*.md
+
+# Note: keep src/ — src/data/*.txt lexicons are read at runtime from
+# process.cwd()/src/data (tsc does not copy them into dist/). Keep dist/,
+# node_modules/, host.json, package.json.
