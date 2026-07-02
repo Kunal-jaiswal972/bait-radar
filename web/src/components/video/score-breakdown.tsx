@@ -23,6 +23,9 @@ export function ScoreBreakdown({ video }: { video: VideoDetail }) {
   const tags = insights?.thumbnail?.tags ?? []
   const objects = insights?.thumbnail?.objects ?? []
 
+  const hasTranscript = (video.transcript?.length ?? 0) > 0
+  const hasComments = (betrayal?.total_comments ?? 0) > 0
+
   return (
     <Collapsible
       open={open}
@@ -46,10 +49,17 @@ export function ScoreBreakdown({ video }: { video: VideoDetail }) {
           <Divider />
           <Row
             label="Audience betrayal"
-            value={`${toPct(betrayal?.betrayal_rate)}% · ${betrayal?.flagged_count ?? 0}/${betrayal?.total_comments ?? 0} comments`}
+            value={
+              hasComments
+                ? `${toPct(betrayal?.betrayal_rate)}% · ${betrayal?.flagged_count ?? 0}/${betrayal?.total_comments ?? 0} comments`
+                : "unavailable"
+            }
           />
           <Divider />
-          <Row label="Transcript tone" value={insights?.transcript?.sentiment ?? "n/a"} />
+          <Row
+            label="Transcript tone"
+            value={hasTranscript ? (insights?.transcript?.sentiment ?? "unavailable") : "unavailable"}
+          />
           <Divider />
           <Signals label="Thumbnail text (OCR)" items={ocr} className="bg-bait-yellow" />
           <Signals label="Vision tags" items={tags} className="bg-bait-blue" />

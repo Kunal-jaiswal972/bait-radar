@@ -3,6 +3,7 @@ import { Activity, ArrowLeft, Calendar, Clock, Eye, MessageSquare, ThumbsUp, typ
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { MetaBadge } from "@/components/meta-badges"
 import { BaitDial } from "@/components/bait-dial"
 import { ScoreMeter } from "@/components/score-meter"
@@ -56,6 +57,12 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
   const pillars = insights?.pillars
   const dist = insights?.comment?.distribution
 
+  // Availability flags — each analysis dimension can be missing (no transcript,
+  // no comments, no timeline yet). We surface "Unavailable" rather than hiding
+  // the section or showing a misleading zero / default value.
+  const hasTranscript = (video.transcript?.length ?? 0) > 0
+  const hasComments = (video.comments?.length ?? 0) > 0
+
   return (
     <div className="space-y-8">
       <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
@@ -97,16 +104,20 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
                 <LabeledBadge caption="Clickbait">
                   <MetaBadge kind="likelihood" value={video.likelihood} />
                 </LabeledBadge>
-                {insights?.comment?.overall && (
-                  <LabeledBadge caption="Comment mood">
+                <LabeledBadge caption="Comment mood">
+                  {hasComments && insights?.comment?.overall ? (
                     <MetaBadge kind="sentiment" value={insights.comment.overall} />
-                  </LabeledBadge>
-                )}
-                {insights?.transcript?.sentiment && (
-                  <LabeledBadge caption="Transcript tone">
+                  ) : (
+                    <Unavailable />
+                  )}
+                </LabeledBadge>
+                <LabeledBadge caption="Transcript tone">
+                  {hasTranscript && insights?.transcript?.sentiment ? (
                     <MetaBadge kind="sentiment" value={insights.transcript.sentiment} />
-                  </LabeledBadge>
-                )}
+                  ) : (
+                    <Unavailable />
+                  )}
+                </LabeledBadge>
               </div>
             </div>
           </CardContent>
@@ -139,8 +150,9 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
             )}
             <PillarMeter label="Audience betrayal" tip={PILLAR_TIPS.betrayal} value={toPct(pillars?.betrayal)} />
             <p className="text-xs text-foreground/55">
-              {insights?.betrayal?.flagged_count ?? 0} of {insights?.betrayal?.total_comments ?? 0} comments
-              flagged as betrayed.
+              {hasComments
+                ? `${insights?.betrayal?.flagged_count ?? 0} of ${insights?.betrayal?.total_comments ?? 0} comments flagged as betrayed.`
+                : "No comments collected — betrayal has no signal."}
             </p>
           </CardContent>
         </Card>
@@ -157,17 +169,15 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
 
       <ScoreBreakdown video={video} />
 
-      {video?.timeline?.length > 0 && (
-        <Card>
-          <CardContent className="space-y-2">
-            <h2 className="flex items-center gap-2 font-heading text-xl">
-              <Activity className="size-5" /> Engagement Velocity
-            </h2>
-            <p className="text-sm text-foreground/70">Views, likes and comments captured over time.</p>
-            <EngagementChart data={video?.timeline} />
-          </CardContent>
-        </Card>
-      )}
+      <Card>
+        <CardContent className="space-y-2">
+          <h2 className="flex items-center gap-2 font-heading text-xl">
+            <Activity className="size-5" /> Engagement Velocity
+          </h2>
+          <p className="text-sm text-foreground/70">Views, likes and comments captured over time.</p>
+          <EngagementChart data={video?.timeline} />
+        </CardContent>
+      </Card>
 
       <TranscriptPanel lines={video?.transcript} sentiment={insights?.transcript?.sentiment} />
 
@@ -175,7 +185,9 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
         <CardContent className="space-y-4">
           <h2 className="flex flex-wrap items-center gap-2 font-heading text-xl">
             <MessageSquare className="size-5" /> Comments
-            {insights?.comment?.overall && <MetaBadge kind="sentiment" value={insights.comment.overall} />}
+            {hasComments && insights?.comment?.overall && (
+              <MetaBadge kind="sentiment" value={insights.comment.overall} />
+            )}
           </h2>
           <CommentsPanel comments={video.comments} />
         </CardContent>
@@ -186,6 +198,16 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
 
 function toPct(value: number | undefined): number {
   return Math.round((value ?? 0) * 100)
+}
+
+// A muted chip shown when a datapoint couldn't be computed (no transcript, no
+// comments, etc.) — clearer than a misleading zero or default value.
+function Unavailable() {
+  return (
+    <Badge variant="neutral" className="font-base uppercase tracking-wide text-foreground/45">
+      Unavailable
+    </Badge>
+  )
 }
 
 // A single labeled stat (icon + value + caption) for the video's info card.
@@ -230,12 +252,20 @@ function PillarMeter({ label, tip, value }: { label: string; tip: string; value:
   )
 }
 
-function UnavailablePillar({ label, tip }: { label: string; tip: string }) {
+// Same layout as PillarMeter, but with an "Unavailable" marker and an empty
+// (dashed) meter track — so the pillar reads consistently instead of looking
+// missing when it can't be scored.
+function UnavailablePillar({ label, tip, reason = "no transcript" }: { label: string; tip: string; reason?: string }) {
   return (
-    <div className="text-xs font-heading uppercase tracking-wide text-foreground/45">
-      <span className="flex items-center gap-1.5">
-        {label} <InfoTip label={label} text={tip} /> · unavailable (no transcript)
-      </span>
+    <div className="opacity-60">
+      <div className="mb-1 flex items-center justify-between text-xs font-heading uppercase tracking-wide">
+        <span className="flex items-center gap-1.5">
+          {label} <InfoTip label={label} text={tip} />
+        </span>
+        <span className="text-foreground/50">Unavailable</span>
+      </div>
+      <div className="h-5 w-full rounded-base border-2 border-dashed border-border bg-secondary-background" />
+      <p className="mt-1 text-[0.65rem] font-heading uppercase tracking-wide text-foreground/40">({reason})</p>
     </div>
   )
 }
