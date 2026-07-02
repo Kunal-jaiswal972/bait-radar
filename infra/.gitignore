@@ -1,0 +1,19 @@
+# Terraform state (local backend) — may contain secrets. Never commit.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+.terraform.tfstate.lock.info
+
+# Real variable files (only the *.example templates are committed).
+secret.tfvars
+terraform.tfvars
+*.auto.tfvars
+
+# Plans / crash logs
+*.tfplan
+crash.log
+crash.*.log
+
+# Keep the dependency lock file committed:
+!.terraform.lock.hcl

@@ -1,0 +1,30 @@
+# Copy to `terraform.tfvars` and adjust. NON-secret config (Terraform auto-loads
+# terraform.tfvars). Secrets go in secret.tfvars instead.
+
+subscription_id = "00000000-0000-0000-0000-000000000000"
+location        = "centralindia"
+
+# Single resource group for all infra (prod + local dev share it).
+resource_group_name = "BaitRadar"
+name_prefix         = "baitradar"
+
+# AI (Vision/Language) region. Central India works if your existing accounts do;
+# otherwise a region with Image Analysis 4.0 such as "eastus".
+ai_services_location = "centralindia"
+
+# Cosmos DB region. Kept in the US if the subscription can't provision Cosmos in
+# Central India (e.g. Azure for Students capacity limits).
+cosmos_location = "westus2"
+
+# AI SKUs. Standard by default (Azure allows only one FREE F0 account of each
+# kind per subscription, which clashes with the old RG during migration). Switch
+# to "F0" after the old RG is deleted if you want the free tier.
+vision_sku   = "S1"
+language_sku = "S"
+
+# APIM publisher identity (shown on the developer portal).
+apim_publisher_name  = "BaitRadar"
+apim_publisher_email = "you@example.com"
+
+# Static Web Apps is region-limited; East Asia is closest to India.
+static_web_app_location = "eastasia"
