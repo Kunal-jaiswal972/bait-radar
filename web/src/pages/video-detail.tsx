@@ -69,9 +69,10 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
         <div className="self-start overflow-hidden rounded-base border-2 border-border shadow-shadow">
           <div className="aspect-video w-full">
             <iframe
-              src={`https://www.youtube.com/embed/${video.videoId}`}
+              src={`https://www.youtube-nocookie.com/embed/${video.videoId}`}
               title={video.title}
               className="size-full"
+              referrerPolicy="strict-origin-when-cross-origin"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
             />

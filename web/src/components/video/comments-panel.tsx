@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,6 +12,7 @@ import {
   type SentimentFilter,
 } from "@/constants/filters"
 import { formatDate } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import type { CommentItem } from "@/data/types"
 
 // Comment list with client-side search, sentiment filter, sort, and progressive
@@ -109,7 +110,7 @@ export function CommentsPanel({ comments }: { comments: CommentItem[] }) {
                   <MetaBadge kind="sentiment" value={c.sentiment} />
                 </div>
               </div>
-              <p className="whitespace-pre-wrap break-words text-sm text-foreground/80">{c.text}</p>
+              <CommentText text={c.text} />
             </li>
           ))}
         </ul>
@@ -124,6 +125,43 @@ export function CommentsPanel({ comments }: { comments: CommentItem[] }) {
         >
           Load more
         </Button>
+      )}
+    </div>
+  )
+}
+
+// A comment body clamped to 3 lines with a Read more / Show less toggle. Overflow
+// is measured once (scrollHeight vs clientHeight while clamped) so the toggle only
+// appears for comments that actually exceed 3 lines.
+function CommentText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  const ref = useRef<HTMLParagraphElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (el) setOverflows(el.scrollHeight > el.clientHeight + 1)
+  }, [text])
+
+  return (
+    <div>
+      <p
+        ref={ref}
+        className={cn(
+          "whitespace-pre-wrap break-words text-sm text-foreground/80",
+          !expanded && "line-clamp-3",
+        )}
+      >
+        {text}
+      </p>
+      {(overflows || expanded) && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 text-xs font-heading uppercase tracking-wide text-foreground/55 underline underline-offset-2 transition-colors hover:text-foreground"
+        >
+          {expanded ? "Show less" : "Read more"}
+        </button>
       )}
     </div>
   )
