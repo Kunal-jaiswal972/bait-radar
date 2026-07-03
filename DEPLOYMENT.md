@@ -122,6 +122,44 @@ curl https://<apim>.azure-api.net/api/dashboard/channels     # -> []
 
 ---
 
+## 3b. Redeploying after code changes
+
+The infra is already provisioned, so day-to-day you only push code. All commands
+are **idempotent** — re-running never recreates infra.
+
+```bash
+# Simplest: redeploy everything (terraform apply is a no-op when infra is unchanged)
+bash deploy.sh
+
+# Or target just what changed:
+
+# Node app (APIs / webhook / ingestion worker / hourly tracker)
+bun run build && func azure functionapp publish baitradar-app-api --javascript
+
+# Python transcript app
+cd transcript-service && func azure functionapp publish baitradar-transcript-api && cd ..
+
+# Web SPA
+cd web && VITE_API_BASE_URL=https://baitradar-apim.azure-api.net/api bun run build \
+  && npx @azure/static-web-apps-cli deploy ./dist --env production \
+     --deployment-token "$(terraform -chdir=../infra output -raw static_web_app_api_key)" \
+  && cd ..
+```
+
+**Infra / config changes** (new Azure resource, app setting, SKU, region):
+
+```bash
+cd infra && terraform apply -var-file="secret.tfvars"
+```
+
+- **New non-secret setting** → add it to the `app_settings` map in `infra/main.tf`, `terraform apply`.
+- **New secret** → add the value to `infra/secret.tfvars`, add its name to `secret_keys` in `infra/keyvault.tf`, reference it in the Node `app_settings` (`local.kv_ref["…"]`) in `main.tf`, then `terraform apply`. For a Python-app runtime secret, deploy.sh's key-wiring step is the pattern.
+
+> After changing a **Key Vault reference** app setting, restart the Node app so it
+> re-resolves: `az functionapp restart -g BaitRadar -n baitradar-app-api`.
+
+---
+
 ## 4. Local development (from Key Vault)
 
 Generate `local.settings.json` for both apps from the deployed Key Vault:
