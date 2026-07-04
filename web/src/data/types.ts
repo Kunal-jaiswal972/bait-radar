@@ -12,7 +12,7 @@ export type Likelihood =
 export type Sentiment = "Positive" | "Negative" | "Neutral" | "Mixed"
 export type Trend = "rising" | "falling" | "stable"
 export type SubStatus = "pending" | "verified" | "failed"
-export type TranscriptStatus = "success" | "failed_retryable" | "manual_override"
+export type TranscriptStatus = "success" | "failed_retryable"
 
 export interface ChannelClickbait {
   propensity_percentage: number

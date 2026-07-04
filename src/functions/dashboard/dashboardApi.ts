@@ -1,9 +1,10 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { z } from "zod";
 import { getVideoDetail, listChannels, listVideos } from "../../services/dashboardService";
+import { refreshVideo } from "../../services/videoActionService";
 
-// Thin read-only controllers for the dashboard SPA: validate inputs, delegate to
-// dashboardService, return JSON. No data access or business logic here.
+// Thin controllers for the dashboard SPA: validate inputs, delegate to the
+// services, return JSON. No data access or business logic here.
 
 const DEFAULT_LIMIT = 60;
 const MAX_LIMIT = 200;
@@ -93,6 +94,27 @@ export async function getVideoDetailHandler(
   }
 }
 
+/** POST /api/dashboard/videos/{videoId}/refresh — re-run extraction + AI on demand. */
+export async function refreshVideoHandler(
+  request: HttpRequest,
+  context: InvocationContext
+): Promise<HttpResponseInit> {
+  const videoId = request.params.videoId;
+  if (!videoId) {
+    return { status: 400, jsonBody: { error: "Missing videoId" } };
+  }
+  try {
+    const queued = await refreshVideo(videoId, context);
+    if (!queued) {
+      return { status: 404, jsonBody: { error: "Video not found" } };
+    }
+    return { status: 202, jsonBody: { status: "queued", videoId } };
+  } catch (err) {
+    context.error("dashboard: refreshVideo failed", err);
+    return { status: 500, jsonBody: { error: "Failed to queue refresh" } };
+  }
+}
+
 app.http("dashboardChannels", {
   route: "dashboard/channels",
   methods: ["GET"],
@@ -119,4 +141,11 @@ app.http("dashboardVideoDetail", {
   methods: ["GET"],
   authLevel: "anonymous",
   handler: getVideoDetailHandler,
+});
+
+app.http("dashboardVideoRefresh", {
+  route: "dashboard/videos/{videoId}/refresh",
+  methods: ["POST"],
+  authLevel: "anonymous",
+  handler: refreshVideoHandler,
 });

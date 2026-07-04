@@ -1,8 +1,14 @@
 import type { Part } from "@google/generative-ai";
 import { z } from "zod";
-import { getGeminiModel, LlmUnavailableError } from "../clients/geminiClient";
+import { GEMINI_MODELS, getGeminiApiKey, getGeminiModel, LlmUnavailableError } from "../clients/geminiClient";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+
+/** A successful Gemini score plus the model id that produced it (for provenance). */
+export interface GeminiScore {
+  score: number;
+  model: string;
+}
 
 const scoreResponseSchema = z.object({
   score: z.number(),
@@ -43,21 +49,30 @@ export async function imageUrlToPart(url: string): Promise<Part | null> {
 }
 
 /**
- * Runs a JSON-score prompt (text + optional image parts) through Gemini with a
- * timeout and returns a 0..1 score. Always throws LlmUnavailableError on failure,
- * so callers can degrade in a single catch.
+ * Runs a JSON-score prompt (text + optional image parts) through Gemini, trying
+ * each model in GEMINI_MODELS in order until one responds — so a per-model quota
+ * (429) or transient 503 falls through to the next model instead of degrading.
+ * Returns the 0..1 score and the model that produced it. Throws LlmUnavailableError
+ * (no key, or every model failed) so callers can degrade in a single catch.
  */
 export async function generateScore(
   systemPrompt: string,
   parts: Array<string | Part>,
   timeoutMs = DEFAULT_TIMEOUT_MS
-): Promise<number> {
-  const model = getGeminiModel(systemPrompt);
-  try {
-    const result = await raceWithTimeout(model.generateContent(parts), timeoutMs);
-    return parseJsonScore(result.response.text());
-  } catch (err) {
-    if (err instanceof LlmUnavailableError) throw err;
-    throw new LlmUnavailableError(`Gemini request failed: ${(err as Error).message}`);
+): Promise<GeminiScore> {
+  getGeminiApiKey(); // fail fast (no key) before iterating models
+
+  let lastError: Error | undefined;
+  for (const model of GEMINI_MODELS) {
+    try {
+      const gemini = getGeminiModel(systemPrompt, model);
+      const result = await raceWithTimeout(gemini.generateContent(parts), timeoutMs);
+      return { score: parseJsonScore(result.response.text()), model };
+    } catch (err) {
+      lastError = err as Error;
+    }
   }
+  throw new LlmUnavailableError(
+    `All Gemini models failed (last: ${lastError?.message ?? "unknown"})`
+  );
 }

@@ -81,7 +81,7 @@ Two ideas drive the design:
 | Message broker | Azure Event Hubs (`video-ingestion-hub`) |
 | Database | Azure Cosmos DB (NoSQL) — `Channels`, `VideoInsights` |
 | Thumbnail vision | Azure AI Vision (Image Analysis 4.0 — Read / Tags / Objects) |
-| LLM | Google **Gemini Flash** (`gemini-2.5-flash`) — sole LLM provider |
+| LLM | Google **Gemini** — sole LLM provider; tried in a fixed fallback chain (`gemini-2.0-flash` → `2.5-flash` → `2.0-flash-lite` → `2.5-flash-lite`) so a per-model quota/outage falls through to the next |
 | Sentiment NLP | Azure AI Language (Text Analytics sentiment) |
 | Transcripts | Python `youtube-transcript-api` in a **separate Python Function App** (`transcript-service/`), called over HTTP |
 | Validation | **Zod** at every trust boundary (env, HTTP bodies, queue messages, AI responses, Cosmos reads) |
@@ -231,7 +231,7 @@ web/                       # React + Vite SPA (dashboard) — see web/ for its o
     "title": "...", "description": "...", "channelTitle": "...",
     "thumbnailUrl": "...", "videoUrl": "...",
     "duration": "PT10M30S",
-    "transcript_status": "success | failed_retryable | manual_override",
+    "transcript_status": "success | failed_retryable",
     "transcript": [{ "text": "...", "start": 0.0, "duration": 1.2 }]
   },
   "insights": {
@@ -239,7 +239,7 @@ web/                       # React + Vite SPA (dashboard) — see web/ for its o
     "clickbait":  {                          // v2 multi-pillar model
       "packaging": {                         // pillar 1 — title/desc/thumbnail bait
         "heuristic_score": 0.73, "llm_score": 0.40,
-        "llm_source": "gemini-2.5-flash",    // or "heuristic_fallback"
+        "llm_source": "gemini-2.0-flash",    // the model that answered, or "heuristic_fallback"
         "score": 0.50                        // 0.3*heuristic + 0.7*llm
       },
       "mismatch": {                          // pillar 2 — promise vs payoff
@@ -350,8 +350,12 @@ no extra cost — surfacing aspect-level opinions (`target` + sentiment) per com
 Negative opinions about packaging targets (thumbnail/title/intro) feed the betrayal pillar.
 
 ### Gemini call budget
-**One Gemini call per video** (clickbait scoring only). Vision and Language are the
-other two paid services; transcripts are free (scraped).
+**Up to two Gemini scoring calls per video** — packaging, plus promise–payoff
+mismatch when a transcript exists. Each call walks the model fallback chain
+(`gemini-2.0-flash` → `2.5-flash` → `2.0-flash-lite` → `2.5-flash-lite`) and stops
+at the first model that answers, so a per-model quota (429) or transient 503 never
+forces a heuristic fallback while any model is still available. Vision and Language
+are the other two paid services; transcripts are free (scraped).
 
 ---
 
@@ -412,6 +416,7 @@ degraded path trades away accuracy. Know what you lose:
 | `GET`  | `/api/dashboard/videos` | recent analyzed videos (cards) |
 | `GET`  | `/api/dashboard/channels/{channelId}/videos` | a channel's videos |
 | `GET`  | `/api/dashboard/videos/{videoId}` | full video detail (insights, transcript, comments, timeline) |
+| `POST` | `/api/dashboard/videos/{videoId}/refresh` | re-run extraction + AI on demand (republishes to Event Hub, `202`); works for any video regardless of age |
 
 **Python app** (internal — called only by the Node worker, not via APIM):
 
@@ -420,7 +425,7 @@ degraded path trades away accuracy. Know what you lose:
 | `GET`, `POST` | `/api/transcript?videoId=` | fetch a transcript → `{ segments: [{text,start,duration}] }`; `404` = none, `503` = retry |
 
 > `EventHubTrigger` (`processVideoIngestion`) is not an HTTP endpoint — it fires off the
-> `video-ingestion-hub`. Refresh/transcript write-backs come in Phase 6.
+> `video-ingestion-hub`. `refresh` write-back reuses that same worker.
 
 ---
 
@@ -540,7 +545,6 @@ Validated by `config/env.ts` (Zod) on first access — missing **required** vars
 | `COSMOS_DATABASE` | `ytanalytics` |
 | `EVENTHUB_NAME` | `video-ingestion-hub` |
 | `PUBSUBHUBBUB_HUB_URL` | `https://pubsubhubbub.appspot.com/subscribe` |
-| `GEMINI_MODEL` | `gemini-2.5-flash` |
 | `MIN_VIDEO_SECONDS_THRESHOLD` | `60` — videos shorter than this are treated as Shorts and skipped entirely |
 | `LEXICON_DIR` | unset → `src/data` — directory holding the clickbait/betrayal/stopword `.txt` files |
 
@@ -606,8 +610,8 @@ See [`plan.md`](plan.md) for the full phased plan.
 | 8 | Clickbait model v2 (packaging + mismatch + betrayal → percentage; channel rollup; opinion mining) | ✅ Done |
 | 7 | React dashboard frontend (`web/`) + dashboard read APIs | ✅ Done |
 | — | Transcripts extracted to a standalone Python Function App (HTTP internal API) | ✅ Done |
-| 5 | Time-series tracking (daily timer) | ⏭ Next |
-| 6 | Dashboard write-back endpoints (refresh / transcript override) | ⬜ Planned |
+| 5 | Time-series tracking (hourly timer) | ✅ Done |
+| 6 | Dashboard write-back: on-demand `refresh` endpoint + UI | ✅ Done |
 
 ---
 

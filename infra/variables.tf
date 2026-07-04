@@ -72,12 +72,6 @@ variable "eventhub_name" {
   default     = "video-ingestion-hub"
 }
 
-variable "gemini_model" {
-  type        = string
-  description = "Gemini model id."
-  default     = "gemini-2.5-flash"
-}
-
 variable "min_video_seconds_threshold" {
   type        = number
   description = "Videos shorter than this (seconds) are treated as Shorts and skipped."

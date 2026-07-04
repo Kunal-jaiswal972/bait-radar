@@ -1,6 +1,5 @@
 import type { Part } from "@google/generative-ai";
-import { geminiModelName } from "../clients/geminiClient";
-import { generateScore, imageUrlToPart } from "./geminiService";
+import { generateScore, imageUrlToPart, type GeminiScore } from "./geminiService";
 import { heuristicScore, packagingScore } from "../domain/clickbait";
 import type { ClickbaitSignals, Logger, PackagingPillar } from "../types";
 
@@ -17,7 +16,7 @@ the thumbnail, and exaggeration or emotional manipulation in the title.
 Respond with ONLY a JSON object: {"score": <float 0.0-1.0>, "reason": "<short>"}.
 Do not include markdown fences or any other text.`;
 
-async function geminiPackagingScore(signals: ClickbaitSignals): Promise<number> {
+async function geminiPackagingScore(signals: ClickbaitSignals): Promise<GeminiScore> {
   const payload = JSON.stringify({
     title: signals.title,
     description: signals.description.slice(0, 2000),
@@ -46,8 +45,9 @@ export async function scorePackaging(
   let llm = heuristic;
   let llmSource = "heuristic_fallback";
   try {
-    llm = await geminiPackagingScore(signals);
-    llmSource = geminiModelName();
+    const result = await geminiPackagingScore(signals);
+    llm = result.score;
+    llmSource = result.model;
   } catch (err) {
     logger.warn("Gemini packaging scoring failed (degrading to heuristic)", err);
   }

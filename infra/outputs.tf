@@ -87,6 +87,3 @@ output "language_endpoint" {
   value = azurerm_cognitive_account.language.endpoint
 }
 
-output "gemini_model" {
-  value = var.gemini_model
-}

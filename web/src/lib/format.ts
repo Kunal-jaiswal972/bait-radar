@@ -25,11 +25,16 @@ export function formatDate(iso: string): string {
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
 }
 
-/** ISO timestamp → "Jun 26, 2 PM" for time-series axes/tooltips. */
+/** ISO timestamp → "Jun 26, 2:00 PM" (or "Jun 26, 17:00" in 24h locales) for time-series axes/tooltips. */
 export function formatShortDateTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric" })
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
 }
 
 /** Seconds → "m:ss" (or "h:mm:ss") for transcript timestamps. */

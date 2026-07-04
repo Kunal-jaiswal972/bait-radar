@@ -10,6 +10,7 @@ import { ScoreMeter } from "@/components/score-meter"
 import { InfoTip } from "@/components/shared/info-tip"
 import { VideoDescription } from "@/components/video/video-description"
 import { ScoreBreakdown } from "@/components/video/score-breakdown"
+import { VideoActions } from "@/components/video/video-actions"
 import { TranscriptPanel } from "@/components/video/transcript-panel"
 import { CommentsPanel } from "@/components/video/comments-panel"
 import { EngagementChart } from "@/components/charts/engagement-chart"
@@ -169,6 +170,8 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
       </div>
 
       <ScoreBreakdown video={video} />
+
+      <VideoActions videoId={video.videoId} transcriptStatus={video.transcript_status} />
 
       <Card>
         <CardContent className="space-y-2">

@@ -54,3 +54,16 @@ export function registerChannel(channel: string): Promise<RegisterChannelResult>
     body: JSON.stringify({ channel }),
   })
 }
+
+export interface VideoActionResult {
+  status: string
+  videoId: string
+}
+
+/** Re-run extraction + AI for a video on demand (Phase 6 write-back). */
+export function refreshVideo(videoId: string): Promise<VideoActionResult> {
+  return request<VideoActionResult>(
+    `/dashboard/videos/${encodeURIComponent(videoId)}/refresh`,
+    { method: "POST" },
+  )
+}

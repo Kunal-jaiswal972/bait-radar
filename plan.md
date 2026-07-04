@@ -34,13 +34,6 @@ YouTube blocks the transcript scraper from Azure datacenter IPs
 Bottom line: a **residential proxy is the only low-maintenance fix**. Transcripts
 work fine locally (residential IP).
 
-### Phase 6 — Write-back actions
-- `POST /api/dashboard/videos/{videoId}/refresh` — re-run extraction + AI on demand
-  (republish to the Event Hub; reuses the worker). Also the **manual escape hatch
-  for the tracker's 48h window**: lets a user re-fetch stats/comments + append a
-  fresh timeline point for *any* video, however old.
-- `POST /api/dashboard/videos/{videoId}/transcript` — accept raw transcript text,
-  set `transcript_status = manual_override`, persist (a way around the IP block).
 
 ### Optional polish
 - **APIM rate-limiting** — omitted (unsupported on the Consumption tier); add if

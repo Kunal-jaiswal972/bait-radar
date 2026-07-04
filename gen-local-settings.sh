@@ -33,7 +33,6 @@ if command -v terraform >/dev/null 2>&1 && $TF output -raw key_vault_name >/dev/
   KV=$($TF output -raw key_vault_name | clean)
   COSMOS_DB=$($TF output -raw cosmos_database | clean)
   EVENTHUB_NAME=$($TF output -raw eventhub_name | clean)
-  GEMINI_MODEL=$($TF output -raw gemini_model | clean)
   VISION_ENDPOINT=$($TF output -raw vision_endpoint | clean)
   LANGUAGE_ENDPOINT=$($TF output -raw language_endpoint | clean)
 else
@@ -43,7 +42,6 @@ else
   LANGUAGE_ENDPOINT=$(az cognitiveservices account list -g "$RG" --query "[?kind=='TextAnalytics'].properties.endpoint | [0]" -o tsv | clean)
   COSMOS_DB="ytanalytics" # infra defaults
   EVENTHUB_NAME="video-ingestion-hub"
-  GEMINI_MODEL="gemini-2.5-flash"
 fi
 
 [ -n "$KV" ] || { echo "Could not resolve the Key Vault name" >&2; exit 1; }
@@ -74,7 +72,6 @@ cat <<JSON | tr -d '\r' > "$ROOT/local.settings.json"
     "EventHubConnection": "$EH_CONN",
     "YOUTUBE_API_KEY": "$YOUTUBE",
     "GEMINI_API_KEY": "$GEMINI",
-    "GEMINI_MODEL": "$GEMINI_MODEL",
     "VISION_ENDPOINT": "$VISION_ENDPOINT",
     "VISION_KEY": "$VISION",
     "LANGUAGE_ENDPOINT": "$LANGUAGE_ENDPOINT",

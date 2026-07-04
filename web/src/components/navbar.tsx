@@ -7,6 +7,7 @@ const links = [
   { to: "/", label: "Home", end: true },
   { to: "/channels", label: "Channels" },
   { to: "/videos", label: "Videos" },
+  { to: "/how-it-works", label: "How it works" },
 ]
 
 export function Navbar() {

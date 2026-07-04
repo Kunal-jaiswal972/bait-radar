@@ -5,6 +5,7 @@ import { Home } from "@/pages/home"
 import { Channels } from "@/pages/channels"
 import { VideoGrid } from "@/pages/video-grid"
 import { VideoDetailPage } from "@/pages/video-detail"
+import { Algorithm } from "@/pages/algorithm"
 
 export const router = createBrowserRouter([
   {
@@ -15,6 +16,7 @@ export const router = createBrowserRouter([
       { path: "channels", element: <Channels /> },
       { path: "videos", element: <VideoGrid /> },
       { path: "videos/:id", element: <VideoDetailPage /> },
+      { path: "how-it-works", element: <Algorithm /> },
     ],
   },
 ])

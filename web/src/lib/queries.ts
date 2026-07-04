@@ -4,8 +4,10 @@ import {
   fetchChannels,
   fetchVideoDetail,
   fetchVideos,
+  refreshVideo,
   registerChannel,
   type FetchVideosParams,
+  type VideoActionResult,
 } from "@/lib/api"
 import type {
   Channel,
@@ -50,5 +52,12 @@ export function useRegisterChannel() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.channels })
     },
+  })
+}
+
+/** Queues an on-demand re-run of a video's extraction + AI (Phase 6). */
+export function useRefreshVideo(videoId: string) {
+  return useMutation<VideoActionResult, Error, void>({
+    mutationFn: () => refreshVideo(videoId),
   })
 }

@@ -90,7 +90,7 @@ async function extractSummary(fullText: string, logger: Logger): Promise<string[
   }
 }
 
-function geminiMismatchScore(
+async function geminiMismatchScore(
   title: string,
   thumbnailText: string[],
   headExcerpt: string,
@@ -104,7 +104,8 @@ function geminiMismatchScore(
     content_summary: summary,
     content_key_topics: keyPhrases.slice(0, 60),
   });
-  return generateScore(SYSTEM_PROMPT, [payload]);
+  const { score } = await generateScore(SYSTEM_PROMPT, [payload]);
+  return score;
 }
 
 // Deterministic fallback: fraction of the title's content words (stopwords removed)

@@ -142,7 +142,6 @@ module "node_app" {
     # Non-secret config
     COSMOS_DATABASE             = var.cosmos_database
     EVENTHUB_NAME               = var.eventhub_name
-    GEMINI_MODEL                = var.gemini_model
     MIN_VIDEO_SECONDS_THRESHOLD = tostring(var.min_video_seconds_threshold)
     PUBSUBHUBBUB_HUB_URL        = var.pubsubhubbub_hub_url
     PUBSUBHUBBUB_LEASE_SECONDS  = tostring(var.pubsubhubbub_lease_seconds)

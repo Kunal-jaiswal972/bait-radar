@@ -10,7 +10,6 @@ const envSchema = z.object({
   COSMOS_DATABASE: z.string().default("ytanalytics"),
   EVENTHUB_NAME: z.string().default("video-ingestion-hub"),
   PUBSUBHUBBUB_HUB_URL: z.string().default("https://pubsubhubbub.appspot.com/subscribe"),
-  GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
   MIN_VIDEO_SECONDS_THRESHOLD: z.coerce.number().default(60), // videos shorter than this are treated as Shorts and skipped
 
   // Optional: features degrade or are environment-specific.

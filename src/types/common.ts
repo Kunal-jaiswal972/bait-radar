@@ -6,7 +6,6 @@ import { z } from "zod";
 export const transcriptStatusSchema = z.enum([
   "success",
   "failed_retryable",
-  "manual_override",
 ]);
 export type TranscriptStatus = z.infer<typeof transcriptStatusSchema>;
 
