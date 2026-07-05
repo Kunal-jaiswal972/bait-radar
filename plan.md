@@ -38,3 +38,6 @@ work fine locally (residential IP).
 ### Optional polish
 - **APIM rate-limiting** — omitted (unsupported on the Consumption tier); add if
   moving to a paid APIM tier.
+
+
+Node app — (ships `dist/` + `node_modules/`; deps installed fresh, not committed). - we can migrate to npm in prod and bun in dev so that node modules does not need to be shipped everytime takes a lot of bandwidth
