@@ -65,5 +65,8 @@ export const videoInsightsSchema = z.object({
   insights: videoInsightsBlockSchema,
   comments: z.array(commentRecordSchema),
   timeline: z.array(timelinePointSchema),
+  // Set once the ~6h comment pass runs. Gates the scheduler (fire-once) and the
+  // dashboard's "comments pending" state; absent means comments not yet analyzed.
+  comments_processed_at: z.string().optional(),
 });
 export type VideoInsights = z.infer<typeof videoInsightsSchema>;

@@ -66,10 +66,16 @@ variable "cosmos_database" {
   default     = "ytanalytics"
 }
 
-variable "eventhub_name" {
+variable "ingestion_queue_name" {
   type        = string
-  description = "Event Hub (entity) name the producer + trigger use."
-  default     = "video-ingestion-hub"
+  description = "Storage Queue for the video (content) stage — metadata / transcript / packaging."
+  default     = "video-ingestion-queue"
+}
+
+variable "comment_queue_name" {
+  type        = string
+  description = "Storage Queue for the comment stage — top-100 comments + sentiment + betrayal."
+  default     = "comment-processing-queue"
 }
 
 variable "min_video_seconds_threshold" {
@@ -90,15 +96,9 @@ variable "pubsubhubbub_lease_seconds" {
   default     = 432000
 }
 
-# ── AI service SKUs (provisioned fresh in this RG) ───────────────────────────
-# Standard tiers by default: Azure allows only ONE free (F0) account of each kind
+# ── AI service SKU (provisioned fresh in this RG) ────────────────────────────
+# Standard tier by default: Azure allows only ONE free (F0) account of each kind
 # per subscription, which collides with the old RG during migration.
-variable "vision_sku" {
-  type        = string
-  description = "Azure AI Vision (ComputerVision) SKU. F0 (free, one per sub) or S1."
-  default     = "S1"
-}
-
 variable "language_sku" {
   type        = string
   description = "Azure AI Language (TextAnalytics) SKU. F0 (free, one per sub) or S."

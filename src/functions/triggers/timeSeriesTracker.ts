@@ -1,54 +1,46 @@
 import { app, InvocationContext, Timer } from "@azure/functions";
-import { publishVideoIngestion } from "../../services/ingestionService";
+import { appendVideoStats } from "../../services/videoTrackingService";
 import { videoInsightsRepository } from "../../db/repositories";
 
-// Videos published within this window are refreshed on every run.
+// Videos published within this window get a fresh stats snapshot on every run.
 const TRACKING_WINDOW_HOURS = 48;
 
 interface RecentVideoRow {
   id: string; // == videoId
   channelId: string;
-  publishedAt: string;
 }
 
 /**
- * Hourly time-series tracker (Phase 5). Finds videos published in the last
- * TRACKING_WINDOW_HOURS and re-enqueues each through the same ingestion pipeline
- * the webhook uses. The worker then re-fetches stats + comments, recomputes
- * comment sentiment + the clickbait score, appends a fresh `timeline` point, and
- * preserves the existing transcript if a re-fetch returns nothing — so engagement
- * is tracked over time without duplicating or losing prior data.
+ * Stats-only time-series tracker. Every 6 hours it appends a views/likes/comments
+ * snapshot to the timeline for videos published in the last TRACKING_WINDOW_HOURS
+ * — enough to draw the engagement curve while a video is fresh, with no AI cost.
+ * Comment analysis + rescoring is NOT done here; that's the comment stage (fired
+ * once ~6h after upload by commentAnalysisScheduler, or manually).
  */
 export async function timeSeriesTracker(_timer: Timer, context: InvocationContext): Promise<void> {
   const cutoff = new Date(Date.now() - TRACKING_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
 
   const rows = await videoInsightsRepository.queryProjection<RecentVideoRow>({
-    query: "SELECT c.id, c.channelId, c.publishedAt FROM c WHERE c.publishedAt >= @cutoff",
+    query: "SELECT c.id, c.channelId FROM c WHERE c.publishedAt >= @cutoff",
     parameters: [{ name: "@cutoff", value: cutoff }],
   });
 
-  context.log(`Time-series tracker: ${rows.length} video(s) published since ${cutoff}`);
+  context.log(`Stats tracker: ${rows.length} video(s) published since ${cutoff}`);
 
-  let enqueued = 0;
+  let updated = 0;
   for (const row of rows) {
     try {
-      await publishVideoIngestion({
-        videoId: row.id,
-        channelId: row.channelId,
-        publishedAt: row.publishedAt,
-        source: "tracker",
-      });
-      enqueued++;
+      if (await appendVideoStats({ videoId: row.id, channelId: row.channelId }, context)) updated++;
     } catch (err) {
-      context.warn(`Tracker: failed to re-enqueue ${row.id}`, err);
+      context.warn(`Stats tracker: failed to snapshot ${row.id}`, err);
     }
   }
 
-  context.log(`Time-series tracker: re-enqueued ${enqueued}/${rows.length} video(s) for refresh`);
+  context.log(`Stats tracker: appended ${updated}/${rows.length} snapshot(s)`);
 }
 
 app.timer("timeSeriesTracker", {
-  // NCRONTAB (sec min hour day month day-of-week): every hour, on the hour.
-  schedule: "0 0 * * * *",
+  // NCRONTAB (sec min hour day month day-of-week): every 6 hours, on the hour.
+  schedule: "0 0 */6 * * *",
   handler: timeSeriesTracker,
 });

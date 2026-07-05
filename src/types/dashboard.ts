@@ -41,23 +41,22 @@ export interface MismatchPillarView {
   score: number; // 0..1
 }
 
+// Betrayal mirrors mismatch: unavailable until the ~6h comment pass has run.
+export interface BetrayalPillarView {
+  available: boolean;
+  score: number; // 0..1
+}
+
 export interface PillarBreakdown {
   packaging: number; // 0..1
   mismatch: MismatchPillarView;
-  betrayal: number; // 0..1
+  betrayal: BetrayalPillarView;
 }
 
 export interface BetrayalDetail {
   betrayal_rate: number;
   flagged_count: number;
   total_comments: number;
-}
-
-// Raw thumbnail signals from Azure AI Vision that feed the packaging score.
-export interface ThumbnailSignals {
-  ocr_text: string[];
-  tags: string[];
-  objects: string[];
 }
 
 export interface SentimentDistribution {
@@ -69,7 +68,7 @@ export interface SentimentDistribution {
 
 // All per-video analysis, grouped in one place so each datapoint is returned
 // exactly once: the three clickbait pillar scores, the betrayal counts behind the
-// betrayal pillar, comment sentiment, transcript sentiment, and thumbnail signals.
+// betrayal pillar, comment sentiment, and transcript sentiment.
 export interface VideoInsightsView {
   pillars: PillarBreakdown;
   betrayal: BetrayalDetail;
@@ -80,7 +79,6 @@ export interface VideoInsightsView {
   transcript: {
     sentiment: Sentiment;
   };
-  thumbnail: ThumbnailSignals;
 }
 
 export interface TimelineDto {
@@ -105,6 +103,9 @@ export interface TranscriptLine {
 export interface VideoDetail extends VideoCard {
   description: string;
   transcript_status: TranscriptStatus;
+  // True when the ~6h comment pass hasn't run yet — the UI shows "pending" for
+  // betrayal + comment sentiment instead of a misleading zero.
+  comments_pending: boolean;
   transcript: TranscriptLine[];
   insights: VideoInsightsView;
   timeline: TimelineDto[];

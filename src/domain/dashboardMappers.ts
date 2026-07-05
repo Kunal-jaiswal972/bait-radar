@@ -88,6 +88,8 @@ export function toVideoDetail(doc: VideoInsights): VideoDetail {
     ...toVideoCard(doc),
     description: doc.metadata.description,
     transcript_status: doc.metadata.transcript_status,
+    // No comment pass yet → betrayal + comment sentiment are "pending", not zero.
+    comments_pending: !doc.comments_processed_at,
     transcript: doc.metadata.transcript.map((s) => ({ start: s.start, text: s.text })),
     insights: {
       pillars: {
@@ -96,7 +98,10 @@ export function toVideoDetail(doc: VideoInsights): VideoDetail {
           available: clickbait.mismatch.available,
           score: clickbait.mismatch.score,
         },
-        betrayal: clickbait.betrayal.score,
+        betrayal: {
+          available: clickbait.betrayal.available,
+          score: clickbait.betrayal.score,
+        },
       },
       betrayal: {
         betrayal_rate: clickbait.betrayal.betrayal_rate,
@@ -108,10 +113,9 @@ export function toVideoDetail(doc: VideoInsights): VideoDetail {
         distribution: commentSentiment.distribution,
       },
       transcript: { sentiment: doc.insights.transcript_sentiment.label },
-      thumbnail: doc.insights.thumbnail,
     },
     timeline: doc.timeline.map(toTimelineDto),
-    // All stored comments (≤200); the dashboard sorts/filters/paginates client-side.
+    // All stored comments (top ≤100); the dashboard sorts/filters/paginates client-side.
     comments: doc.comments.map(toCommentDto),
   };
 }

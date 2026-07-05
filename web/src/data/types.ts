@@ -59,22 +59,22 @@ export interface MismatchPillarView {
   score: number // 0..1
 }
 
+// Betrayal mirrors mismatch: unavailable until the ~6h comment pass has run.
+export interface BetrayalPillarView {
+  available: boolean
+  score: number // 0..1
+}
+
 export interface PillarBreakdown {
   packaging: number // 0..1
   mismatch: MismatchPillarView
-  betrayal: number // 0..1
+  betrayal: BetrayalPillarView
 }
 
 export interface BetrayalDetail {
   betrayal_rate: number
   flagged_count: number
   total_comments: number
-}
-
-export interface ThumbnailSignals {
-  ocr_text: string[]
-  tags: string[]
-  objects: string[]
 }
 
 export interface SentimentDistribution {
@@ -95,7 +95,6 @@ export interface VideoInsightsView {
   transcript: {
     sentiment: Sentiment
   }
-  thumbnail: ThumbnailSignals
 }
 
 export interface TimelinePoint {
@@ -120,6 +119,9 @@ export interface TranscriptLine {
 export interface VideoDetail extends VideoCard {
   description: string
   transcript_status: TranscriptStatus
+  // True when the ~6h comment pass hasn't run yet — betrayal + comment sentiment
+  // are "pending", not a real zero.
+  comments_pending: boolean
   transcript: TranscriptLine[]
   insights: VideoInsightsView
   timeline: TimelinePoint[]

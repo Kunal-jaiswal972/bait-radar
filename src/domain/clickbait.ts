@@ -67,23 +67,21 @@ export function likelihoodLabel(percentage: number): Likelihood {
 }
 
 /**
- * Packaging heuristic (0..1) from the same signals the LLM sees: overlay
- * presence, ALL CAPS ratio, absolute words, and punctuation intensity (capped).
+ * Packaging heuristic (0..1) from the title + description text: ALL CAPS ratio,
+ * absolute/sensational words, and punctuation intensity (capped). The thumbnail
+ * image itself is judged by the multimodal LLM, not this text-only heuristic.
  */
 export function heuristicScore(signals: ClickbaitSignals): number {
-  const { title, description, tags, objects, thumbnailText } = signals;
-  const overlay = thumbnailText.join(" ");
-  const headline = `${title} ${overlay}`.trim();
-  const textCorpus = `${title} ${overlay} ${description}`.trim();
-  const visualConcepts = [...tags, ...objects].map((s) => s.toLowerCase());
+  const { title, description } = signals;
+  const headline = title.trim();
+  const textCorpus = `${title} ${description}`.trim();
 
-  const overlaySignal = thumbnailText.length > 0 || visualConcepts.includes("text") ? 0.25 : 0;
-  const capsSignal = Math.min(allCapsRatio(headline) * 0.5, 0.3);
-  const absoluteSignal = Math.min(countLexiconHits(textCorpus, CLICKBAIT_WORDS) * 0.1, 0.3);
+  const capsSignal = Math.min(allCapsRatio(headline) * 0.5, 0.35);
+  const absoluteSignal = Math.min(countLexiconHits(textCorpus, CLICKBAIT_WORDS) * 0.1, 0.35);
   const exclaims = (headline.match(/[!?]/g) ?? []).length;
   const punctSignal = Math.min(exclaims * 0.05, 0.15);
 
-  return round2(clamp01(overlaySignal + capsSignal + absoluteSignal + punctSignal));
+  return round2(clamp01(capsSignal + absoluteSignal + punctSignal));
 }
 
 /** Merged packaging score: 0.3*heuristic + 0.7*llm. */
@@ -186,7 +184,7 @@ export function aggregateChannel(videos: ChannelVideoStat[]): ChannelRollup {
 export interface PillarScores {
   packaging: number;
   mismatch: number | null; // null = unavailable (no transcript)
-  betrayal: number;
+  betrayal: number | null; // null = unavailable (comment pass not run yet)
 }
 
 export interface ClickbaitAggregate {
@@ -195,24 +193,29 @@ export interface ClickbaitAggregate {
 }
 
 /**
- * Weighted blend of available pillars into a 0..100 percentage. When mismatch is
- * unavailable its weight is dropped and the remaining weights are renormalized.
+ * Weighted blend of the available pillars into a 0..100 percentage. Any pillar
+ * passed as null (mismatch with no transcript, betrayal before the comment pass)
+ * has its weight dropped and the remaining weights renormalized, so an early
+ * score isn't diluted by pillars that simply haven't been computed yet.
  */
 export function aggregateClickbait(p: PillarScores): ClickbaitAggregate {
   const base = PILLAR_WEIGHTS;
-  let weights: ClickbaitAggregate["weights"];
-
-  if (p.mismatch === null) {
-    const denom = base.packaging + base.betrayal;
-    weights = { packaging: base.packaging / denom, mismatch: 0, betrayal: base.betrayal / denom };
-  } else {
-    weights = { packaging: base.packaging, mismatch: base.mismatch, betrayal: base.betrayal };
-  }
+  const present = {
+    packaging: base.packaging,
+    mismatch: p.mismatch === null ? 0 : base.mismatch,
+    betrayal: p.betrayal === null ? 0 : base.betrayal,
+  };
+  const denom = present.packaging + present.mismatch + present.betrayal || 1;
+  const weights = {
+    packaging: present.packaging / denom,
+    mismatch: present.mismatch / denom,
+    betrayal: present.betrayal / denom,
+  };
 
   const score =
     weights.packaging * p.packaging +
     weights.mismatch * (p.mismatch ?? 0) +
-    weights.betrayal * p.betrayal;
+    weights.betrayal * (p.betrayal ?? 0);
 
   return {
     percentage: Math.round(clamp01(score) * 100),

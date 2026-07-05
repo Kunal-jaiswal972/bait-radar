@@ -20,18 +20,10 @@ resource "azurerm_storage_account" "this" {
   tags                     = local.tags
 }
 
-# ── Azure AI services (provisioned fresh) ────────────────────────────────────
-# Two separate accounts; one shared region. Keys → Key Vault, endpoints → app settings.
-resource "azurerm_cognitive_account" "vision" {
-  name                  = local.vision_name
-  resource_group_name   = azurerm_resource_group.this.name
-  location              = var.ai_services_location
-  kind                  = "ComputerVision"
-  sku_name              = var.vision_sku
-  custom_subdomain_name = local.vision_name # resource-specific endpoint for Image Analysis 4.0
-  tags                  = local.tags
-}
-
+# ── Azure AI Language (provisioned fresh) ────────────────────────────────────
+# Comment/transcript sentiment, opinion mining, key phrases, summarization.
+# Key → Key Vault, endpoint → app settings. (Thumbnail analysis is handled by the
+# multimodal Gemini call, so no separate Azure Vision account is needed.)
 resource "azurerm_cognitive_account" "language" {
   name                  = local.language_name
   resource_group_name   = azurerm_resource_group.this.name
@@ -90,32 +82,19 @@ resource "azurerm_cosmosdb_sql_container" "video_insights" {
   partition_key_version = 2
 }
 
-# ── Event Hubs ───────────────────────────────────────────────────────────────
-resource "azurerm_eventhub_namespace" "this" {
-  name                = local.ehns_name
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
-  sku                 = "Basic"
-  capacity            = 1
-  tags                = local.tags
+# ── Processing queues ────────────────────────────────────────────────────────
+# Storage Queues on the shared account (replaces the always-on Event Hub namespace
+# — queues have no fixed hourly cost). Both publishers and triggers use the
+# AzureWebJobsStorage connection the Function App already has. The video stage and
+# the comment stage each get their own queue so they scale + retry independently.
+resource "azurerm_storage_queue" "ingestion" {
+  name               = var.ingestion_queue_name
+  storage_account_id = azurerm_storage_account.this.id
 }
 
-resource "azurerm_eventhub" "this" {
-  name              = var.eventhub_name
-  namespace_id      = azurerm_eventhub_namespace.this.id
-  partition_count   = 2
-  message_retention = 1
-}
-
-# Send+Listen rule (least privilege — no Manage). Its connection string is what
-# both the producer and the trigger binding use.
-resource "azurerm_eventhub_namespace_authorization_rule" "app" {
-  name                = "app-send-listen"
-  namespace_name      = azurerm_eventhub_namespace.this.name
-  resource_group_name = azurerm_resource_group.this.name
-  listen              = true
-  send                = true
-  manage              = false
+resource "azurerm_storage_queue" "comments" {
+  name               = var.comment_queue_name
+  storage_account_id = azurerm_storage_account.this.id
 }
 
 # ── Function Apps ────────────────────────────────────────────────────────────
@@ -141,25 +120,22 @@ module "node_app" {
 
     # Non-secret config
     COSMOS_DATABASE             = var.cosmos_database
-    EVENTHUB_NAME               = var.eventhub_name
+    INGESTION_QUEUE_NAME        = var.ingestion_queue_name
+    COMMENT_QUEUE_NAME          = var.comment_queue_name
     MIN_VIDEO_SECONDS_THRESHOLD = tostring(var.min_video_seconds_threshold)
     PUBSUBHUBBUB_HUB_URL        = var.pubsubhubbub_hub_url
     PUBSUBHUBBUB_LEASE_SECONDS  = tostring(var.pubsubhubbub_lease_seconds)
     PUBSUBHUBBUB_CALLBACK_URL   = local.webhook_callback_url
-    VISION_ENDPOINT             = azurerm_cognitive_account.vision.endpoint
     LANGUAGE_ENDPOINT           = azurerm_cognitive_account.language.endpoint
     TRANSCRIPT_FUNCTION_URL     = local.python_transcript_url
 
     # Secrets via Key Vault references (identity granted read access in keyvault.tf).
-    COSMOS_CONNECTION_STRING   = local.kv_ref["cosmos-connection-string"]
-    EVENTHUB_CONNECTION_STRING = local.kv_ref["eventhub-connection-string"]
-    EventHubConnection         = local.kv_ref["eventhub-connection-string"]
-    YOUTUBE_API_KEY            = local.kv_ref["youtube-api-key"]
-    GEMINI_API_KEY             = local.kv_ref["gemini-api-key"]
-    VISION_KEY                 = local.kv_ref["vision-key"]
-    LANGUAGE_KEY               = local.kv_ref["language-key"]
-    PUBSUBHUBBUB_VERIFY_TOKEN  = local.kv_ref["pubsubhubbub-verify-token"]
-    TRANSCRIPT_FUNCTION_KEY    = local.kv_ref["transcript-function-key"]
+    COSMOS_CONNECTION_STRING  = local.kv_ref["cosmos-connection-string"]
+    YOUTUBE_API_KEY           = local.kv_ref["youtube-api-key"]
+    GEMINI_API_KEY            = local.kv_ref["gemini-api-key"]
+    LANGUAGE_KEY              = local.kv_ref["language-key"]
+    PUBSUBHUBBUB_VERIFY_TOKEN = local.kv_ref["pubsubhubbub-verify-token"]
+    TRANSCRIPT_FUNCTION_KEY   = local.kv_ref["transcript-function-key"]
   }
 }
 

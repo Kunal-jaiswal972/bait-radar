@@ -7,9 +7,10 @@ import { cn } from "@/lib/utils"
 import { useRefreshVideo } from "@/lib/queries"
 import type { TranscriptStatus } from "@/data/types"
 
-// Phase 6 write-back action on the video detail page: re-run the analysis on
-// demand (re-fetch stats/comments/transcript, recompute every pillar, append a
-// fresh timeline point) for any video, regardless of age.
+// Write-back action on the video detail page: re-run the comment stage on demand
+// — refetch the top-100 comments, recompute sentiment + betrayal + the merged
+// score + channel rollup, and append a fresh stats point — for any video,
+// regardless of age. Packaging/mismatch are left as-is (no Gemini/Vision re-run).
 
 const STATUS_LABEL: Record<TranscriptStatus, string> = {
   success: "Transcript: scraped",
@@ -44,7 +45,7 @@ export function VideoActions({
             className="font-heading uppercase"
           >
             <RefreshCw className={cn("size-4", refresh.isPending && "animate-spin")} />
-            {refresh.isPending ? "Queuing…" : "Re-run analysis"}
+            {refresh.isPending ? "Queuing…" : "Refresh comments"}
           </Button>
           {refresh.isSuccess && (
             <span className="text-sm font-heading text-foreground/70">
@@ -56,8 +57,9 @@ export function VideoActions({
           )}
         </div>
         <p className="text-xs text-foreground/55">
-          Re-fetches stats, comments and transcript, recomputes every pillar, and appends
-          a fresh timeline point — for any video, regardless of age.
+          Refetches the top-100 comments and recomputes sentiment, betrayal, the bait
+          score and the channel rollup, plus a fresh stats point — for any video,
+          regardless of age.
         </p>
       </CardContent>
     </Card>

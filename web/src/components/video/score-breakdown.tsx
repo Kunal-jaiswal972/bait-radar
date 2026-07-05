@@ -1,14 +1,13 @@
 import { type ReactNode, useState } from "react"
 import { ChevronDown, Gauge } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
 import type { VideoDetail } from "@/data/types"
 
 // Transparency panel: the raw datapoints + sub-scores behind the bait score —
-// packaging (heuristic vs AI), mismatch source, betrayal rate, transcript tone,
-// and the thumbnail signals from vision. Built on the registry Collapsible.
+// packaging (heuristic vs AI), mismatch source, betrayal rate, and transcript
+// tone. Built on the registry Collapsible.
 
 const toPct = (v: number | undefined): number => Math.round((v ?? 0) * 100)
 
@@ -19,12 +18,14 @@ export function ScoreBreakdown({ video }: { video: VideoDetail }) {
   const pillars = insights?.pillars
   const mismatch = pillars?.mismatch
   const betrayal = insights?.betrayal
-  const ocr = insights?.thumbnail?.ocr_text ?? []
-  const tags = insights?.thumbnail?.tags ?? []
-  const objects = insights?.thumbnail?.objects ?? []
 
   const hasTranscript = (video.transcript?.length ?? 0) > 0
-  const hasComments = (betrayal?.total_comments ?? 0) > 0
+  const betrayalAvailable = pillars?.betrayal?.available ?? false
+  const betrayalValue = video.comments_pending
+    ? "pending (~6h after upload)"
+    : betrayalAvailable
+      ? `${toPct(betrayal?.betrayal_rate)}% · ${betrayal?.flagged_count ?? 0}/${betrayal?.total_comments ?? 0} comments`
+      : "no comments"
 
   return (
     <Collapsible
@@ -47,23 +48,12 @@ export function ScoreBreakdown({ video }: { video: VideoDetail }) {
             value={mismatch?.available ? `${toPct(mismatch.score)}%` : "unavailable"}
           />
           <Divider />
-          <Row
-            label="Audience betrayal"
-            value={
-              hasComments
-                ? `${toPct(betrayal?.betrayal_rate)}% · ${betrayal?.flagged_count ?? 0}/${betrayal?.total_comments ?? 0} comments`
-                : "unavailable"
-            }
-          />
+          <Row label="Audience betrayal" value={betrayalValue} />
           <Divider />
           <Row
             label="Transcript tone"
             value={hasTranscript ? (insights?.transcript?.sentiment ?? "unavailable") : "unavailable"}
           />
-          <Divider />
-          <Signals label="Thumbnail text (OCR)" items={ocr} className="bg-bait-yellow" />
-          <Signals label="Vision tags" items={tags} className="bg-bait-blue" />
-          <Signals label="Objects" items={objects} className="bg-bait-green" />
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -81,31 +71,4 @@ function Row({ label, value, strong }: { label: string; value: ReactNode; strong
 
 function Divider(): ReactNode {
   return <div className="border-t-2 border-dashed border-border" />
-}
-
-function Signals({
-  label,
-  items,
-  className,
-}: {
-  label: string
-  items: string[]
-  className: string
-}): ReactNode {
-  return (
-    <div>
-      <p className="mb-1.5 text-xs font-heading uppercase tracking-wide text-foreground/55">{label}</p>
-      {items.length === 0 ? (
-        <p className="text-xs text-foreground/40">— none detected</p>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          {items.map((it) => (
-            <Badge key={it} className={cn("font-base", className)}>
-              {it}
-            </Badge>
-          ))}
-        </div>
-      )}
-    </div>
-  )
 }

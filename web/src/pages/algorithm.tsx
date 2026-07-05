@@ -149,15 +149,14 @@ function SignalsExtracted() {
   return (
     <Section icon={Boxes} title="1 · Signals we extract" tone="bg-bait-yellow">
       <p className="text-foreground/75">
-        Before any scoring, the worker pulls five raw inputs. Shorts (&lt; 60s) are skipped entirely — they
-        lack the promise/payoff structure the model reasons about.
+        Before any scoring, the worker pulls the raw inputs. The thumbnail is sent to the multimodal LLM as
+        an image — no separate vision OCR/tags pass. Shorts (&lt; 60s) are skipped entirely — they lack the
+        promise/payoff structure the model reasons about.
       </p>
       <div className="grid gap-4 md:grid-cols-2">
         <SignalGroup label="Title" tone="bg-bait-blue" items={[el.title]} />
         <SignalGroup label="Description (excerpt)" tone="bg-bait-blue" items={[el.descriptionPreview]} />
-        <SignalGroup label="Thumbnail — OCR overlay text" tone="bg-bait-yellow" items={el.thumbnailOcr} />
-        <SignalGroup label="Thumbnail — vision objects" tone="bg-bait-green" items={el.thumbnailObjects} />
-        <SignalGroup label="Thumbnail — vision tags" tone="bg-bait-green" items={el.thumbnailTags} />
+        <SignalGroup label="Thumbnail" tone="bg-bait-yellow" items={["image → Gemini (multimodal)"]} />
         <div className="grid grid-cols-2 gap-4">
           <CountTile value={el.transcriptSegments.toLocaleString()} label="transcript segments" />
           <CountTile value={el.commentsAnalyzed.toLocaleString()} label="comments analyzed" />
@@ -192,15 +191,14 @@ function CountTile({ value, label }: { value: string; label: string }) {
 // ── Pillar 1 ────────────────────────────────────────────────────────────────────
 function PackagingPillar() {
   const p = e.packaging
-  const worked = `overlaySignal  = 0.25      # "DAY 29" printed on the thumbnail
-capsSignal     = 0.08      # 1 of 6 words ALL-CAPS  ("DAY")
+  const worked = `capsSignal     = 0.08      # 1 of 6 words ALL-CAPS  ("DAY")
 absoluteSignal = 0.10      # 1 sensational word hit
 punctSignal    = 0.00      # no "!" or "?" in the title
                  ────
-heuristic      = 0.43
+heuristic      = 0.18
 
-packaging = 0.3 × 0.43  +  0.7 × 0.60   = 0.55
-                              ▲ Gemini (multimodal, ${p.llmSource})`
+packaging = 0.3 × 0.18  +  0.7 × 0.60   = 0.47
+                              ▲ Gemini (multimodal, reads the thumbnail — ${p.llmSource})`
   return (
     <PillarSection
       index="2"
@@ -208,7 +206,7 @@ packaging = 0.3 × 0.43  +  0.7 × 0.60   = 0.55
       tone="bg-bait-blue"
       title="Pillar 1 — Packaging"
       weight={e.weights.packaging}
-      lead="How sensational the title, description and thumbnail are. A deterministic heuristic and a multimodal Gemini call score the same evidence; the two are merged 30/70."
+      lead="How sensational the title, description and thumbnail are. A text-only heuristic (title + description) and a multimodal Gemini call that reads the thumbnail image are merged 30/70."
       paperIdx={0}
       score={p.score}
     >
@@ -248,7 +246,7 @@ source                 →  "gemini"
 // ── Pillar 3 ────────────────────────────────────────────────────────────────────
 function BetrayalPillar() {
   const b = e.betrayal
-  const worked = `flaggedComments = ${b.flagged}     # 0 of ${b.total} newest comments matched a betrayal phrase
+  const worked = `flaggedComments = ${b.flagged}     # 0 of ${b.total} top comments (by relevance) matched a betrayal phrase
                       #   or a negative opinion about the thumbnail/title/intro
 rate  = ${b.flagged} / ${b.total} = ${b.rate.toFixed(2)}
 score = clamp01(${b.rate.toFixed(2)} / 0.20) = ${b.score.toFixed(2)}

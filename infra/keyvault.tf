@@ -41,11 +41,9 @@ locals {
     "gemini-api-key"            = var.gemini_api_key
     "pubsubhubbub-verify-token" = var.pubsubhubbub_verify_token
     # Azure-generated (from the resources in this RG)
-    "cosmos-connection-string"   = azurerm_cosmosdb_account.this.primary_sql_connection_string
-    "eventhub-connection-string" = azurerm_eventhub_namespace_authorization_rule.app.primary_connection_string
-    "storage-connection-string"  = azurerm_storage_account.this.primary_connection_string
-    "vision-key"                 = azurerm_cognitive_account.vision.primary_access_key
-    "language-key"               = azurerm_cognitive_account.language.primary_access_key
+    "cosmos-connection-string"  = azurerm_cosmosdb_account.this.primary_sql_connection_string
+    "storage-connection-string" = azurerm_storage_account.this.primary_connection_string
+    "language-key"              = azurerm_cognitive_account.language.primary_access_key
   }
 
   # All secrets are required and always created. Keys are a static list (known at
@@ -55,9 +53,7 @@ locals {
     "gemini-api-key",
     "pubsubhubbub-verify-token",
     "cosmos-connection-string",
-    "eventhub-connection-string",
     "storage-connection-string",
-    "vision-key",
     "language-key",
   ])
 

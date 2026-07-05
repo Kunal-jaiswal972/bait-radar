@@ -11,10 +11,8 @@ locals {
   apim_name       = "${local.base}-apim"
   kv_name         = "${local.base}-kv-972" # globally unique (plain baitradar-kv was taken); 972 matches your naming
   cosmos_name     = "${local.base}-cosmos-db"
-  ehns_name       = "${local.base}-eventhub"
   swa_name        = "${local.base}-web-app"
   storage_name    = "${local.compact}storage" # ≤24, lowercase, no hyphens
-  vision_name     = "${local.base}-vision"
   language_name   = "${local.base}-language"
 
   # Deterministic public hostnames (Azure public cloud).

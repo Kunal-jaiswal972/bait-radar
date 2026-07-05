@@ -30,7 +30,9 @@ loadLocalSettings();
 // Imported after env is populated so module-level singletons see the right config.
 const { channelRepository } = await import("../db/repositories");
 const { getRecentUploads } = await import("../services/videoService");
-const { publishVideoIngestion } = await import("../services/ingestionService");
+const { publishVideoIngestion, publishCommentProcessing } = await import(
+  "../services/ingestionService"
+);
 
 async function main(): Promise<void> {
   const count = Number(process.argv[2] ?? 3);
@@ -56,11 +58,11 @@ async function main(): Promise<void> {
       const videoIds = await getRecentUploads(channel.channelId, count);
       console.log(`  ${channel.channelId} (${channel.title ?? "?"}): ${videoIds.length} video(s)`);
       for (const videoId of videoIds) {
-        await publishVideoIngestion({
-          videoId,
-          channelId: channel.channelId,
-          source: "backfill",
-        });
+        const message = { videoId, channelId: channel.channelId, source: "backfill" as const };
+        // Seed both stages so local runs get full data now (no 6h wait): content
+        // stage builds the doc; comment stage merges the top-100 comments into it.
+        await publishVideoIngestion(message);
+        await publishCommentProcessing(message);
         published++;
       }
     } catch (err) {
@@ -68,7 +70,7 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(`Done. Published ${published} ingestion message(s) to the hub.`);
+  console.log(`Done. Published ${published} video(s) to both the ingestion and comment queues.`);
 }
 
 main().catch((err) => {

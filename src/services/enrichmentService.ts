@@ -1,7 +1,6 @@
 import { scorePackaging } from "./clickbaitService";
 import { scoreMismatch } from "./mismatchService";
 import { analyzeSentiments, analyzeSingleSentiment } from "./sentimentService";
-import { analyzeThumbnail } from "./visionService";
 import { aggregateClickbait, betrayalFromComments, likelihoodLabel } from "../domain/clickbait";
 import type {
   ClickbaitInsights,
@@ -12,114 +11,131 @@ import type {
   Sentiment,
   SentimentScores,
   TranscriptSegment,
-  VideoInsightsBlock,
 } from "../types";
 
-export interface EnrichmentInput {
+// The pipeline runs in two independent stages (each persists on its own):
+//   1. content stage — packaging, mismatch, transcript sentiment (runs on
+//      upload; needs no comments). The multimodal Gemini scorer reads the
+//      thumbnail image directly, so no separate Vision pass is needed.
+//   2. comment stage — per-comment sentiment, comment-sentiment summary, and the
+//      betrayal pillar (runs ~6h later, once enough comments exist).
+// assembleClickbait() blends whichever pillars are available into the final index.
+
+export interface VideoContentInput {
   title: string;
   description: string;
   thumbnailUrl: string;
   transcript: TranscriptSegment[];
-  comments: CommentRecord[];
 }
 
-export interface EnrichmentResult {
-  insights: VideoInsightsBlock;
-  comments: CommentRecord[];
+export interface VideoContentResult {
+  packaging: ClickbaitInsights["packaging"];
+  mismatch: ClickbaitInsights["mismatch"];
+  transcript_sentiment: { label: Sentiment };
 }
 
-interface ThumbnailEvidence {
-  ocrLines: string[];
-  tags: string[];
-  objects: string[];
+export interface CommentEnrichmentResult {
+  scoredComments: CommentRecord[];
+  comment_sentiment: CommentSentimentInsights;
+  betrayal: ClickbaitInsights["betrayal"];
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /**
- * Orchestrates every AI step and assembles the insights block. Each step degrades
- * independently: a Vision/Gemini/Language failure never blocks the others or
- * final persistence.
+ * Content stage — packaging, mismatch, and transcript sentiment from the
+ * title/description/thumbnail/transcript. Needs no comments, so it runs on
+ * upload. Each AI step degrades independently on failure.
  */
-export async function enrichVideo(
-  input: EnrichmentInput,
+export async function enrichVideoContent(
+  input: VideoContentInput,
   logger: Logger
-): Promise<EnrichmentResult> {
-  const thumbnail = await analyzeThumbnailEvidence(input.thumbnailUrl, logger);
-
+): Promise<VideoContentResult> {
   const signals: ClickbaitSignals = {
     title: input.title,
     description: input.description,
     thumbnailUrl: input.thumbnailUrl,
-    tags: thumbnail.tags,
-    objects: thumbnail.objects,
-    thumbnailText: thumbnail.ocrLines,
   };
 
-  // Independent AI calls run concurrently; each already degrades on failure.
-  const [packaging, mismatch, transcriptLabel, scoredComments] = await Promise.all([
+  const [packaging, mismatch, transcriptLabel] = await Promise.all([
     scorePackaging(signals, logger),
-    scoreMismatch(
-      { title: input.title, thumbnailText: thumbnail.ocrLines, transcript: input.transcript },
-      logger
-    ),
+    scoreMismatch({ title: input.title, transcript: input.transcript }, logger),
     scoreTranscriptSentiment(input.transcript, logger),
-    scoreCommentSentiment(input.comments, logger),
   ]);
 
-  const clickbait = mergeClickbait(packaging, mismatch, input.comments);
-
   return {
-    insights: {
-      thumbnail: { ocr_text: thumbnail.ocrLines, tags: thumbnail.tags, objects: thumbnail.objects },
-      clickbait,
-      transcript_sentiment: { label: transcriptLabel },
-      comment_sentiment: summarizeComments(scoredComments),
-    },
-    comments: scoredComments,
+    packaging,
+    mismatch,
+    transcript_sentiment: { label: transcriptLabel },
   };
 }
 
-/** Combines the three pillars into the weighted clickbait index + likelihood label. */
-function mergeClickbait(
-  packaging: ClickbaitInsights["packaging"],
-  mismatch: ClickbaitInsights["mismatch"],
-  comments: CommentRecord[]
-): ClickbaitInsights {
-  const betrayal = betrayalFromComments(comments);
+/**
+ * Comment stage — per-comment sentiment, the comment-sentiment summary, and the
+ * betrayal pillar. Runs once enough comments exist (~6h after upload) or on a
+ * manual refresh. Betrayal is `available` only when at least one comment was read.
+ */
+export async function enrichComments(
+  comments: CommentRecord[],
+  logger: Logger
+): Promise<CommentEnrichmentResult> {
+  const scoredComments = await scoreCommentSentiment(comments, logger);
+  const b = betrayalFromComments(scoredComments);
+
+  return {
+    scoredComments,
+    comment_sentiment: summarizeComments(scoredComments),
+    betrayal: {
+      available: b.total_comments > 0,
+      score: b.score,
+      betrayal_rate: b.betrayal_rate,
+      flagged_count: b.flagged_count,
+      total_comments: b.total_comments,
+    },
+  };
+}
+
+/**
+ * Blends the three pillars into the weighted clickbait index + likelihood label.
+ * mismatch (no transcript) and betrayal (comment pass not yet run) each drop out
+ * and get renormalized away when unavailable.
+ */
+export function assembleClickbait(input: {
+  packaging: ClickbaitInsights["packaging"];
+  mismatch: ClickbaitInsights["mismatch"];
+  betrayal: ClickbaitInsights["betrayal"];
+}): ClickbaitInsights {
+  const { packaging, mismatch, betrayal } = input;
   const agg = aggregateClickbait({
     packaging: packaging.score,
     mismatch: mismatch.available ? mismatch.score : null,
-    betrayal: betrayal.score,
+    betrayal: betrayal.available ? betrayal.score : null,
   });
 
   return {
     packaging,
     mismatch,
-    betrayal: {
-      score: betrayal.score,
-      betrayal_rate: betrayal.betrayal_rate,
-      flagged_count: betrayal.flagged_count,
-      total_comments: betrayal.total_comments,
-    },
+    betrayal,
     clickbait_percentage: agg.percentage,
     likelihood: likelihoodLabel(agg.percentage),
     weights: agg.weights,
   };
 }
 
-/** Vision OCR + tags + objects; degrades to empty evidence on failure. */
-async function analyzeThumbnailEvidence(
-  thumbnailUrl: string,
-  logger: Logger
-): Promise<ThumbnailEvidence> {
-  try {
-    const vision = await analyzeThumbnail(thumbnailUrl);
-    return { ocrLines: vision.ocrLines, tags: vision.tags, objects: vision.objects };
-  } catch (err) {
-    logger.warn("Vision analysis failed (degrading to no OCR/tags/objects)", err);
-    return { ocrLines: [], tags: [], objects: [] };
-  }
+/** Betrayal pillar before the comment pass has run (weight renormalized out). */
+export function emptyBetrayal(): ClickbaitInsights["betrayal"] {
+  return { available: false, score: 0, betrayal_rate: 0, flagged_count: 0, total_comments: 0 };
+}
+
+/** Comment-sentiment summary before any comments have been analyzed. */
+export function emptyCommentSentiment(): CommentSentimentInsights {
+  return {
+    overall: "Neutral",
+    counts: { positive: 0, negative: 0, neutral: 0, mixed: 0 },
+    distribution: { positive: 0, negative: 0, neutral: 0, mixed: 0 },
+    average_scores: { positive: 0, neutral: 0, negative: 0 },
+    total: 0,
+  };
 }
 
 /**

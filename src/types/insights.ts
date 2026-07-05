@@ -5,19 +5,8 @@ import { likelihoodSchema, sentimentSchema, sentimentScoresSchema } from "./comm
 export interface ClickbaitSignals {
   title: string;
   description: string;
-  thumbnailUrl: string; // sent to Gemini as a multimodal image part
-  tags: string[];
-  objects: string[];
-  thumbnailText: string[]; // OCR text overlays
+  thumbnailUrl: string; // sent to Gemini as a multimodal image part — the LLM reads the thumbnail directly
 }
-
-/** Raw Azure AI Vision output for the thumbnail. */
-export const thumbnailInsightsSchema = z.object({
-  ocr_text: z.array(z.string()),
-  tags: z.array(z.string()),
-  objects: z.array(z.string()),
-});
-export type ThumbnailInsights = z.infer<typeof thumbnailInsightsSchema>;
 
 // Pillar 1 — packaging bait: title + description + thumbnail (heuristic + Gemini).
 export const packagingPillarSchema = z.object({
@@ -36,13 +25,21 @@ export const mismatchPillarSchema = z.object({
 });
 export type MismatchPillar = z.infer<typeof mismatchPillarSchema>;
 
-// Pillar 3 — audience betrayal: comments calling out clickbait.
-export const betrayalPillarSchema = z.object({
-  score: z.number(), // 0..1 (betrayal_rate scaled)
-  betrayal_rate: z.number(), // fraction of comments flagged
-  flagged_count: z.number(),
-  total_comments: z.number(),
-});
+// Pillar 3 — audience betrayal: comments calling out clickbait. `available` is
+// false until the comment pass runs (~6h after upload); before that its weight is
+// renormalized out of the merged index (the same way mismatch is when absent).
+export const betrayalPillarSchema = z
+  .object({
+    // Optional on input for backward compatibility: documents written before the
+    // comment-decoupling migration have no `available`. Defaulted on read from
+    // total_comments so those docs parse cleanly and render correctly.
+    available: z.boolean().optional(),
+    score: z.number(), // 0..1 (betrayal_rate scaled)
+    betrayal_rate: z.number(), // fraction of comments flagged
+    flagged_count: z.number(),
+    total_comments: z.number(),
+  })
+  .transform((b) => ({ ...b, available: b.available ?? b.total_comments > 0 }));
 export type BetrayalPillar = z.infer<typeof betrayalPillarSchema>;
 
 // The merged clickbait index: pillars + weighted aggregate + likelihood label.
@@ -84,7 +81,6 @@ export const commentSentimentInsightsSchema = z.object({
 export type CommentSentimentInsights = z.infer<typeof commentSentimentInsightsSchema>;
 
 export const videoInsightsBlockSchema = z.object({
-  thumbnail: thumbnailInsightsSchema,
   clickbait: clickbaitInsightsSchema,
   transcript_sentiment: transcriptSentimentInsightsSchema,
   comment_sentiment: commentSentimentInsightsSchema,

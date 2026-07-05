@@ -127,13 +127,24 @@ interface CommentThreadsResponse {
   nextPageToken?: string;
 }
 
+export interface GetCommentsOptions {
+  max?: number; // total comments to fetch (default 100)
+  order?: "time" | "relevance"; // "relevance" = YouTube's top comments (default)
+}
+
 /**
- * Fetches up to `max` newest-first top-level comments, paginating in pages of 100
- * (the API per-page cap). Newest order suits the time-series tracking that
- * appends new comments over a video's life. Returns [] when comments are disabled
- * (permanent); throws on transient errors.
+ * Fetches up to `max` top-level comments, paginating in pages of 100 (the API
+ * per-page cap). Defaults to the top 100 by relevance — the comments most likely
+ * to reflect the audience's verdict, which is what the betrayal pillar and
+ * sentiment summary score. Returns [] when comments are disabled (permanent);
+ * throws on transient errors.
  */
-export async function getRecentComments(videoId: string, max = 200): Promise<RawComment[]> {
+export async function getRecentComments(
+  videoId: string,
+  options: GetCommentsOptions = {}
+): Promise<RawComment[]> {
+  const max = options.max ?? 100;
+  const order = options.order ?? "relevance";
   const out: RawComment[] = [];
   let pageToken: string | undefined;
 
@@ -141,7 +152,7 @@ export async function getRecentComments(videoId: string, max = 200): Promise<Raw
     const params: Record<string, string> = {
       part: "snippet",
       videoId,
-      order: "time",
+      order,
       maxResults: String(Math.min(100, max - out.length)),
       textFormat: "plainText",
     };

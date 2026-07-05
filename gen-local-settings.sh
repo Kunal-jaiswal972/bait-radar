@@ -32,16 +32,16 @@ if command -v terraform >/dev/null 2>&1 && $TF output -raw key_vault_name >/dev/
   echo "config source: terraform outputs"
   KV=$($TF output -raw key_vault_name | clean)
   COSMOS_DB=$($TF output -raw cosmos_database | clean)
-  EVENTHUB_NAME=$($TF output -raw eventhub_name | clean)
-  VISION_ENDPOINT=$($TF output -raw vision_endpoint | clean)
+  INGESTION_QUEUE=$($TF output -raw ingestion_queue_name | clean)
+  COMMENT_QUEUE=$($TF output -raw comment_queue_name | clean)
   LANGUAGE_ENDPOINT=$($TF output -raw language_endpoint | clean)
 else
   echo "config source: az discovery (terraform not on PATH — see DEPLOYMENT.md if you'd prefer it)"
   KV=$(az keyvault list -g "$RG" --query "[0].name" -o tsv | clean)
-  VISION_ENDPOINT=$(az cognitiveservices account list -g "$RG" --query "[?kind=='ComputerVision'].properties.endpoint | [0]" -o tsv | clean)
   LANGUAGE_ENDPOINT=$(az cognitiveservices account list -g "$RG" --query "[?kind=='TextAnalytics'].properties.endpoint | [0]" -o tsv | clean)
   COSMOS_DB="ytanalytics" # infra defaults
-  EVENTHUB_NAME="video-ingestion-hub"
+  INGESTION_QUEUE="video-ingestion-queue"
+  COMMENT_QUEUE="comment-processing-queue"
 fi
 
 [ -n "$KV" ] || { echo "Could not resolve the Key Vault name" >&2; exit 1; }
@@ -51,14 +51,14 @@ kv() { az keyvault secret show --vault-name "$KV" --name "$1" --query value -o t
 
 STORAGE_CONN=$(kv storage-connection-string)
 COSMOS_CONN=$(kv cosmos-connection-string)
-EH_CONN=$(kv eventhub-connection-string)
 YOUTUBE=$(kv youtube-api-key)
 GEMINI=$(kv gemini-api-key)
-VISION=$(kv vision-key)
 LANGUAGE=$(kv language-key)
 VERIFY=$(kv pubsubhubbub-verify-token)
 
 # ── root local.settings.json (Node app) ─────────────────────────────────────
+# The ingestion + comment queues live on the same storage account as
+# AzureWebJobsStorage, so both queue triggers/publishers use that connection.
 cat <<JSON | tr -d '\r' > "$ROOT/local.settings.json"
 {
   "IsEncrypted": false,
@@ -67,13 +67,10 @@ cat <<JSON | tr -d '\r' > "$ROOT/local.settings.json"
     "FUNCTIONS_WORKER_RUNTIME": "node",
     "COSMOS_CONNECTION_STRING": "$COSMOS_CONN",
     "COSMOS_DATABASE": "$COSMOS_DB",
-    "EVENTHUB_CONNECTION_STRING": "$EH_CONN",
-    "EVENTHUB_NAME": "$EVENTHUB_NAME",
-    "EventHubConnection": "$EH_CONN",
+    "INGESTION_QUEUE_NAME": "$INGESTION_QUEUE",
+    "COMMENT_QUEUE_NAME": "$COMMENT_QUEUE",
     "YOUTUBE_API_KEY": "$YOUTUBE",
     "GEMINI_API_KEY": "$GEMINI",
-    "VISION_ENDPOINT": "$VISION_ENDPOINT",
-    "VISION_KEY": "$VISION",
     "LANGUAGE_ENDPOINT": "$LANGUAGE_ENDPOINT",
     "LANGUAGE_KEY": "$LANGUAGE",
     "PUBSUBHUBBUB_VERIFY_TOKEN": "$VERIFY",

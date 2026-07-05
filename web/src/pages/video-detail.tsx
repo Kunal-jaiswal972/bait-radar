@@ -109,6 +109,8 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
                 <LabeledBadge caption="Comment mood">
                   {hasComments && insights?.comment?.overall ? (
                     <MetaBadge kind="sentiment" value={insights.comment.overall} />
+                  ) : video.comments_pending ? (
+                    <Pending />
                   ) : (
                     <Unavailable />
                   )}
@@ -150,11 +152,25 @@ function VideoDetailView({ video }: { video: VideoDetail }) {
             ) : (
               <UnavailablePillar label="Promise–payoff mismatch" tip={PILLAR_TIPS.mismatch} />
             )}
-            <PillarMeter label="Audience betrayal" tip={PILLAR_TIPS.betrayal} value={toPct(pillars?.betrayal)} />
+            {pillars?.betrayal?.available ? (
+              <PillarMeter
+                label="Audience betrayal"
+                tip={PILLAR_TIPS.betrayal}
+                value={toPct(pillars.betrayal.score)}
+              />
+            ) : (
+              <UnavailablePillar
+                label="Audience betrayal"
+                tip={PILLAR_TIPS.betrayal}
+                reason={video.comments_pending ? "comments analyzed ~6h after upload" : "no comments"}
+              />
+            )}
             <p className="text-xs text-foreground/55">
-              {hasComments
+              {pillars?.betrayal?.available
                 ? `${insights?.betrayal?.flagged_count ?? 0} of ${insights?.betrayal?.total_comments ?? 0} comments flagged as betrayed.`
-                : "No comments collected — betrayal has no signal."}
+                : video.comments_pending
+                  ? "Comments are analyzed once, about 6 hours after upload."
+                  : "No comments collected — betrayal has no signal."}
             </p>
           </CardContent>
         </Card>
@@ -210,6 +226,16 @@ function Unavailable() {
   return (
     <Badge variant="neutral" className="font-base uppercase tracking-wide text-foreground/45">
       Unavailable
+    </Badge>
+  )
+}
+
+// Shown for comment-derived data before the ~6h comment pass has run — it's
+// coming, not missing.
+function Pending() {
+  return (
+    <Badge variant="neutral" className="font-base uppercase tracking-wide text-foreground/60">
+      Pending
     </Badge>
   )
 }

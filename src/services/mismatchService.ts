@@ -9,10 +9,10 @@ const HEAD_EXCERPT_CHARS = 1500;
 const MAX_SUMMARY_CHARS = 120_000; // Azure summarization per-document limit
 const SUMMARY_SENTENCES = 8;
 
-const SYSTEM_PROMPT = `You judge whether a YouTube video DELIVERS what its title and
-thumbnail promise. You are given the title, the thumbnail text overlays, and a
-compact representation of the actual spoken content (an opening excerpt, an
-extractive summary of the whole video, and the key topics from the transcript).
+const SYSTEM_PROMPT = `You judge whether a YouTube video DELIVERS what its title
+promises. You are given the title and a compact representation of the actual
+spoken content (an opening excerpt, an extractive summary of the whole video, and
+the key topics from the transcript).
 Rate the PROMISE–PAYOFF MISMATCH
 from 0.0 to 1.0, where:
   0.0 = the content fully delivers what the title/thumbnail promised
@@ -92,14 +92,12 @@ async function extractSummary(fullText: string, logger: Logger): Promise<string[
 
 async function geminiMismatchScore(
   title: string,
-  thumbnailText: string[],
   headExcerpt: string,
   summary: string[],
   keyPhrases: string[]
 ): Promise<number> {
   const payload = JSON.stringify({
     title,
-    thumbnail_text_overlays: thumbnailText,
     content_opening_excerpt: headExcerpt,
     content_summary: summary,
     content_key_topics: keyPhrases.slice(0, 60),
@@ -127,11 +125,11 @@ function lexicalMismatch(title: string, fullText: string): number {
  * Promise–payoff mismatch pillar. Condenses the transcript two ways — Azure
  * Extractive Summarization (salient sentences) and Key Phrase Extraction (topics
  * sampled across the whole video) — and asks Gemini whether the content delivers
- * the title/thumbnail promise. Falls back to lexical title-presence when Gemini is
- * down; unavailable when there's no transcript.
+ * the title's promise. Falls back to lexical title-presence when Gemini is down;
+ * unavailable when there's no transcript.
  */
 export async function scoreMismatch(
-  input: { title: string; thumbnailText: string[]; transcript: TranscriptSegment[] },
+  input: { title: string; transcript: TranscriptSegment[] },
   logger: Logger
 ): Promise<MismatchPillar> {
   const fullText = input.transcript.map((s) => s.text).join(" ").trim();
@@ -146,13 +144,7 @@ export async function scoreMismatch(
   const headExcerpt = fullText.slice(0, HEAD_EXCERPT_CHARS);
 
   try {
-    const score = await geminiMismatchScore(
-      input.title,
-      input.thumbnailText,
-      headExcerpt,
-      summary,
-      keyPhrases
-    );
+    const score = await geminiMismatchScore(input.title, headExcerpt, summary, keyPhrases);
     return { available: true, score, source: "gemini" };
   } catch (err) {
     logger.warn("Gemini mismatch judge failed (falling back to lexical overlap)", err);

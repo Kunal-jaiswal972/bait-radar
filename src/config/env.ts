@@ -3,12 +3,13 @@ import { z } from "zod";
 const envSchema = z.object({
   // Required for the core pipeline.
   COSMOS_CONNECTION_STRING: z.string().min(1),
-  EVENTHUB_CONNECTION_STRING: z.string().min(1),
+  AzureWebJobsStorage: z.string().min(1), // Functions storage — also hosts the ingestion queue
   YOUTUBE_API_KEY: z.string().min(1),
 
   // Have sensible defaults.
   COSMOS_DATABASE: z.string().default("ytanalytics"),
-  EVENTHUB_NAME: z.string().default("video-ingestion-hub"),
+  INGESTION_QUEUE_NAME: z.string().default("video-ingestion-queue"),
+  COMMENT_QUEUE_NAME: z.string().default("comment-processing-queue"),
   PUBSUBHUBBUB_HUB_URL: z.string().default("https://pubsubhubbub.appspot.com/subscribe"),
   MIN_VIDEO_SECONDS_THRESHOLD: z.coerce.number().default(60), // videos shorter than this are treated as Shorts and skipped
 
@@ -17,8 +18,6 @@ const envSchema = z.object({
   PUBSUBHUBBUB_VERIFY_TOKEN: z.string().optional(),
   PUBSUBHUBBUB_LEASE_SECONDS: z.coerce.number().optional(),
   GEMINI_API_KEY: z.string().optional(),
-  VISION_ENDPOINT: z.string().optional(),
-  VISION_KEY: z.string().optional(),
   LANGUAGE_ENDPOINT: z.string().optional(),
   LANGUAGE_KEY: z.string().optional(),
   TRANSCRIPT_FUNCTION_URL: z.string().optional(), // Python transcript Function App endpoint

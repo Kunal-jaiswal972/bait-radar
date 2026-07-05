@@ -1,7 +1,6 @@
-// Content for the /algorithm explainer page. The worked-example numbers are a REAL
-// run of the video below through the exact BaitRadar pipeline (captured locally,
-// then the video was removed from the DB). Formulas mirror src/domain/clickbait.ts
-// and the pillar services one-to-one.
+// Content for the /algorithm explainer page. The worked-example numbers are
+// illustrative — the video below run through the BaitRadar pipeline. Formulas
+// mirror src/domain/clickbait.ts and the pillar services one-to-one.
 
 export interface Paper {
   title: string
@@ -27,49 +26,42 @@ export const EXAMPLE = {
   elements: {
     title: "Survive 30 Days Chained To A Stranger, Win $250,000",
     descriptionPreview: "imagine being chained to a random stranger for 30 days lol … SUBSCRIBE OR I TAKE YOUR DOG",
-    thumbnailOcr: ["DAY", "29"],
-    thumbnailTags: [
-      "human face", "person", "clothing", "smile", "indoor", "watch",
-      "glasses", "senior citizen", "human beard", "wrinkle", "wall", "man", "fashion accessory",
-    ],
-    thumbnailObjects: ["person", "person"],
     transcriptSegments: 2812,
-    commentsAnalyzed: 200,
+    commentsAnalyzed: 100,
   },
 
   packaging: {
-    overlaySignal: 0.25,
     capsSignal: 0.08,
     absoluteSignal: 0.1,
     punctSignal: 0.0,
-    heuristic: 0.43,
+    heuristic: 0.18,
     llm: 0.6,
     llmSource: "gemini-2.5-flash-lite",
-    score: 0.55,
+    score: 0.47,
   },
   mismatch: { available: true, score: 0.0, source: "gemini" },
-  betrayal: { flagged: 0, total: 200, rate: 0.0, score: 0.0 },
+  betrayal: { flagged: 0, total: 100, rate: 0.0, score: 0.0 },
 
   weights: { packaging: 0.4, mismatch: 0.4, betrayal: 0.2 },
-  percentage: 22,
-  likelihood: "Less Likely",
+  percentage: 19,
+  likelihood: "Least Likely",
 } as const
 
 // ── Formula code blocks (mirror the implementation exactly) ─────────────────────
 export const FORMULAS = {
   packagingHeuristic: `# Pillar 1 — Packaging  ·  rule-based heuristic (0..1)
-# src/domain/clickbait.ts → heuristicScore()
+# src/domain/clickbait.ts → heuristicScore()  ·  title + description text only
 
-overlaySignal  = (thumbnailText.length > 0            # text printed ON the thumbnail
-                  OR "text" in tags∪objects) ? 0.25 : 0
-capsSignal     = min( allCapsRatio(title + overlay) * 0.5 , 0.30 )
-absoluteSignal = min( sensationalWordHits          * 0.10 , 0.30 )   # data/clickbait-words.txt
-punctSignal    = min( count("!" , "?")             * 0.05 , 0.15 )
+capsSignal     = min( allCapsRatio(title)  * 0.5 , 0.35 )
+absoluteSignal = min( sensationalWordHits  * 0.10 , 0.35 )   # data/clickbait-words.txt
+punctSignal    = min( count("!" , "?")     * 0.05 , 0.15 )
 
-heuristic = clamp01(overlaySignal + capsSignal + absoluteSignal + punctSignal)`,
+heuristic = clamp01(capsSignal + absoluteSignal + punctSignal)`,
 
   packagingMerge: `# Pillar 1 — Packaging  ·  merge heuristic + multimodal LLM
-# The thumbnail IMAGE is sent to Gemini alongside the text (temperature 0).
+# The thumbnail IMAGE is sent straight to Gemini (temperature 0), which reads it
+# directly — overlay text, shocked faces, arrows, red circles — so no separate
+# Vision OCR/tags/objects pass is needed.
 # Gemini model cascade: 2.0-flash → 2.5-flash → 2.0-flash-lite → 2.5-flash-lite
 # (first model that answers wins; all fail ⇒ llm = heuristic, source "heuristic_fallback")
 
@@ -83,7 +75,7 @@ condensed = headExcerpt(1500 chars)
           + Azure ExtractiveSummarization(8 salient sentences)
           + Azure KeyPhraseExtraction(topics sampled across the whole video)
 
-mismatch  = Gemini judge(title, thumbnailText, condensed)   # 0 = delivers, 1 = pure bait
+mismatch  = Gemini judge(title, condensed)   # 0 = delivers, 1 = pure bait
 # fallback (Gemini down): 1 − (titleWordsPresentInTranscript / titleWords)`,
 
   betrayal: `# Pillar 3 — Audience betrayal (0..1)
@@ -149,17 +141,17 @@ export const STRENGTHS: Signal[] = [
   {
     label: "Promise–payoff framing, not just hype detection",
     detail:
-      "The model separates sensational packaging from actual deception. This example scores 0.55 on packaging yet only 22% overall — because the content delivers and viewers don't feel betrayed.",
+      "The model separates sensational packaging from actual deception. This example scores 0.47 on packaging yet only 19% overall — because the content delivers and viewers don't feel betrayed.",
   },
   {
     label: "Multimodal & multi-signal",
     detail:
-      "Packaging reads the thumbnail image + OCR + tags + title; mismatch reads the transcript; betrayal reads the audience. No single signal can dominate.",
+      "Packaging sends the thumbnail image itself to a multimodal LLM alongside the title + description; mismatch reads the transcript; betrayal reads the audience. No single signal can dominate.",
   },
   {
     label: "Degrades, never blocks",
     detail:
-      "Every external dependency (Vision, Gemini, Azure Language, transcripts) has a fallback. A missing pillar is dropped and the weights renormalize instead of failing the whole score.",
+      "Every external dependency (Gemini, Azure Language, transcripts) has a fallback. A missing pillar is dropped and the weights renormalize instead of failing the whole score.",
   },
   {
     label: "Quota-resilient LLM",
@@ -182,12 +174,12 @@ export const WEAKNESSES: Signal[] = [
   {
     label: "Betrayal is shallow and lagging",
     detail:
-      "It matches an English phrase list + opinion mining over only the 200 newest comments. It's blind to non-English audiences, needs time to accumulate, and a 0 score means \"no signal\", not \"innocent\".",
+      "It matches an English phrase list + opinion mining over the top 100 comments by relevance, analyzed once about 6h after upload. It's blind to non-English audiences and a 0 score means \"no signal\", not \"innocent\".",
   },
   {
     label: "Engagement bias is not de-confounded",
     detail:
-      "Fan-dominated comment sections rarely cry clickbait, so huge creators can score low despite heavy packaging (this run: betrayal 0/200). The causal-inference paper addresses exactly this — we don't correct for it yet.",
+      "Fan-dominated comment sections rarely cry clickbait, so huge creators can score low despite heavy packaging (this run: betrayal 0/100). The causal-inference paper addresses exactly this — we don't correct for it yet.",
   },
   {
     label: "The heuristic is crude",
@@ -197,6 +189,6 @@ export const WEAKNESSES: Signal[] = [
   {
     label: "Arbitrary constants & single-judge LLM",
     detail:
-      "The 0.20 betrayal saturation, the 0.3/0.7 heuristic-vs-LLM split, the 0.4/0.4/0.2 weights and the 200-comment cap are hand-tuned, not learned. The LLM pillars use a single judge with no ensemble or calibration.",
+      "The 0.20 betrayal saturation, the 0.3/0.7 heuristic-vs-LLM split, the 0.4/0.4/0.2 weights and the 100-comment cap are hand-tuned, not learned. The LLM pillars use a single judge with no ensemble or calibration.",
   },
 ]

@@ -71,16 +71,16 @@ output "cosmos_database" {
   value = var.cosmos_database
 }
 
-output "eventhub_name" {
-  value = var.eventhub_name
+output "ingestion_queue_name" {
+  value = var.ingestion_queue_name
+}
+
+output "comment_queue_name" {
+  value = var.comment_queue_name
 }
 
 output "storage_account_name" {
   value = azurerm_storage_account.this.name
-}
-
-output "vision_endpoint" {
-  value = azurerm_cognitive_account.vision.endpoint
 }
 
 output "language_endpoint" {
